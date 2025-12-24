@@ -21,15 +21,17 @@ class ChatViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='find-or-create')
     def find_or_create_chat(self, request):
+        print(f"DEBUG: find_or_create_chat data: {request.data}")
         product_id = request.data.get('product')
         seller_id = request.data.get('seller')
         buyer_id = request.data.get('buyer')
 
-        if not product_id or not seller_id or not buyer_id:
-            return Response(
-                {"error": "Product, seller and buyer IDs are required."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        if not product_id:
+             return Response({"error": "Product ID is missing."}, status=status.HTTP_400_BAD_REQUEST)
+        if not seller_id:
+             return Response({"error": "Seller ID is missing."}, status=status.HTTP_400_BAD_REQUEST)
+        if not buyer_id:
+             return Response({"error": "Buyer ID is missing. Are you logged in?"}, status=status.HTTP_400_BAD_REQUEST)
 
         chat = Chat.objects.filter(
             product_id=product_id,

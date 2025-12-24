@@ -480,6 +480,33 @@ class ChatbotAPIView(APIView):
 
                         response_message = chat_completion.choices[0].message
                         print(f"DEBUG: Final response content: '{response_message.content}'")
+
+                    elif tool_call.function.name == "get_personalized_recommendations":
+                        print("DEBUG: Getting personalized recommendations")
+                        
+                        # Get recommendations
+                        searched_products = get_personalized_recommendations(request.user)
+                        print(f"DEBUG: Found recommendations: {len(searched_products)}")
+                        
+                        # Add the function result to the conversation
+                        chat_completion = client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_message},
+                                response_message,
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "content": json.dumps(searched_products)
+                                }
+                            ],
+                            temperature=0.7,
+                            max_tokens=500
+                        )
+                        
+                        response_message = chat_completion.choices[0].message
+                        print(f"DEBUG: Final response content: '{response_message.content}'")
             else:
                 print("DEBUG: No tool calls made by AI")
 

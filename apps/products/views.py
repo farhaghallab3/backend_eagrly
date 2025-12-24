@@ -92,27 +92,30 @@ class ProductViewSet(viewsets.ModelViewSet):
             headers = self.get_success_headers(serializer.data)
             return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
-        # Check free ads remaining for additional products
-        if user.free_ads_remaining > 0:
-            serializer.save(seller=user, status='active')
-            headers = self.get_success_headers(serializer.data)
-            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-
-        # Check active package for additional products
+        # Check active package for additional products (Subscription Model - Concurrent Limit)
         has_active_package = (
             user.active_package and
             user.package_expiry and
-            user.package_expiry >= timezone.now().date()
+            user.package_expiry >= timezone.now()
         )
 
         if has_active_package:
             # Calculate remaining ads in package (total limit - current usage)
-            used_in_package = current_product_count  # All products count toward package limit
-            remaining_in_package = user.active_package.ad_limit - used_in_package
-            if remaining_in_package > 0:
+            # Note: current_product_count includes ALL products.
+            # If standard is Limit = Total Active Products, use that.
+            # Assuming Package Limit applies to Total products count.
+            if current_product_count < user.active_package.ad_limit:
                 serializer.save(seller=user, status='active')
                 headers = self.get_success_headers(serializer.data)
                 return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+        # Check free ads remaining (Credit Model - Consumable)
+        if user.free_ads_remaining > 0:
+            user.free_ads_remaining -= 1
+            user.save()
+            serializer.save(seller=user, status='active')
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
         # No ads remaining - return custom 400 response
         return Response(

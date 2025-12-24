@@ -2,7 +2,7 @@ import os
 import json
 from pathlib import Path
 from dotenv import load_dotenv
-# from decouple import config
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv()
