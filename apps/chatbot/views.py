@@ -358,6 +358,15 @@ class ChatbotAPIView(APIView):
             user_message = serializer.validated_data["message"]
 
             if not OPENAI_API_KEY:
+                if settings.DEBUG:
+                    print("DEBUG: OpenAI API key missing, returning mock response")
+                    # Mock response for testing when API key is missing
+                    mock_products = search_products(user_message, request.user)
+                    return Response({
+                        "reply": f"I'm currently in test mode (no API key). I found {len(mock_products)} products matching '{user_message}'.",
+                        "products": mock_products
+                    }, status=status.HTTP_200_OK)
+                
                 return Response(
                     {"error": "OpenAI API key not configured"},
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
