@@ -40,6 +40,7 @@ urlpatterns = [
     path('api/', include('apps.notifications.urls')),
     path('api/', include('apps.reports.urls')),
     path("api/", include("apps.chatbot.urls")),
+    path('api/', include('apps.wishlist.urls')),
     # Swagger
     path('swagger.json', schema_view.without_ui(cache_timeout=0), name='schema-json'),  # ✅
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),

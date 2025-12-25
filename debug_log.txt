@@ -1,0 +1,15 @@
+Notification Verification Script...
+Product created with status: pending
+DEBUG: perform_update called for user: notify_admin, role: admin
+DEBUG: Admin updating product. Old status: pending
+DEBUG: New status after save: active
+DEBUG: Creating notification...
+DEBUG: Created Notification ID: 1 for User: notify_user (ID: 6)
+Update Response Code: 200
+Product status after update: active
+DEBUG: Checking notifications for user ID: 6 (notify_user)
+DEBUG: Total notifications in DB: 1
+ - Notif: Product Approved (Type: product_approved) for User ID: 6
+✅ SUCCESS: Found 1 notification(s) for user.
+Title: Product Approved
+Message: Your product "Pending Product" has been approved and is now active.

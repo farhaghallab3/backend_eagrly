@@ -68,7 +68,11 @@ class ProductViewSet(viewsets.ModelViewSet):
                 return qs.filter(Q(status='active') | Q(seller=user))
             return qs.filter(status='active')
 
-        # For update/delete: user can only manage their own products
+        # For update/delete:
+        if user.is_authenticated and user.role == 'admin':
+            return qs
+
+        # user can only manage their own products
         return qs.filter(seller=user).select_related('category')
 
     def create(self, request, *args, **kwargs):
@@ -88,7 +92,7 @@ class ProductViewSet(viewsets.ModelViewSet):
 
         # Allow first 2 products as trial (new users get 2 free ads)
         if current_product_count < 2:
-            serializer.save(seller=user, status='active')
+            serializer.save(seller=user, status='pending')
             headers = self.get_success_headers(serializer.data)
             return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
@@ -105,7 +109,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             # If standard is Limit = Total Active Products, use that.
             # Assuming Package Limit applies to Total products count.
             if current_product_count < user.active_package.ad_limit:
-                serializer.save(seller=user, status='active')
+                serializer.save(seller=user, status='pending')
                 headers = self.get_success_headers(serializer.data)
                 return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
@@ -113,7 +117,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         if user.free_ads_remaining > 0:
             user.free_ads_remaining -= 1
             user.save()
-            serializer.save(seller=user, status='active')
+            serializer.save(seller=user, status='pending')
             headers = self.get_success_headers(serializer.data)
             return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 

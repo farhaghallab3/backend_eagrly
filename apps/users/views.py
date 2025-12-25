@@ -74,3 +74,26 @@ class UserViewSet(viewsets.ModelViewSet):
         """Get current user profile information for chatbot and other authenticated services."""
         serializer = UserSerializer(request.user)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+    def dashboard(self, request):
+        """Get user dashboard data including profile, ads count, etc."""
+        user = request.user
+        from apps.products.models import Product
+        ads_count = Product.objects.filter(seller=user).count()
+        active_ads = Product.objects.filter(seller=user, status='active').count()
+        pending_ads = Product.objects.filter(seller=user, status='pending').count()
+        wishlist_count = 0  # Will implement later
+        from apps.wishlist.models import Wishlist
+        wishlist_count = Wishlist.objects.filter(user=user).count()
+
+        data = {
+            'user': UserSerializer(user).data,
+            'stats': {
+                'total_ads': ads_count,
+                'active_ads': active_ads,
+                'pending_ads': pending_ads,
+                'wishlist_count': wishlist_count,
+            }
+        }
+        return Response(data)
