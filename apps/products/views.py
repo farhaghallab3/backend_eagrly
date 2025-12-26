@@ -11,6 +11,7 @@ from .models import Category, Product
 from .serializers import CategorySerializer, ProductSerializer
 from apps.common.permissions import IsAdminOrReadOnly, IsOwnerOrAdmin, IsOwnerOrAdminOrActiveProduct
 from apps.notifications.models import Notification
+from .statistics import StatisticsMixin
 
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.prefetch_related('product_set').all()
@@ -29,7 +30,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
         serializer = ProductSerializer(products, many=True, context={'request': request})
         return Response(serializer.data)
 
-class ProductViewSet(viewsets.ModelViewSet):
+class ProductViewSet(StatisticsMixin, viewsets.ModelViewSet):
     queryset = Product.objects.all().select_related('category', 'seller')
     serializer_class = ProductSerializer
 
@@ -144,6 +145,15 @@ class ProductViewSet(viewsets.ModelViewSet):
                     notification_type='product_approved',
                     title='Product Approved',
                     message=f'Your product "{instance.title}" has been approved and is now active.',
+                    product=instance
+                )
+            # Create notification if product was rejected
+            elif old_status == 'pending' and serializer.instance.status in ['rejected', 'inactive']:
+                Notification.objects.create(
+                    user=instance.seller,
+                    notification_type='product_rejected',
+                    title='Product Rejected',
+                    message=f'Your product "{instance.title}" was not approved. Please review and update it.',
                     product=instance
                 )
             return

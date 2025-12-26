@@ -42,14 +42,22 @@ class PackageViewSet(viewsets.ModelViewSet):
             "Content-Type": "application/json"
         }
         
-        # Amount in cents (Paymob expects EGP as base currency usually, check project currency)
-        # Assuming EGP for now as keys are 'egy_...'
-        amount_cents = int(package.price * 100)
+        # Amount in cents (Paymob expects EGP as base currency usually)
+        amount_cents = int(float(package.price) * 100)
+        
+        # Get integration ID - Paymob requires it as an array of integers
+        integration_id = os.environ.get('PAYMOB_INTEGRATION_ID')
+        if integration_id:
+            payment_methods = [int(integration_id)]
+        else:
+            # Fallback to generic payment methods if no integration ID
+            print("WARNING: PAYMOB_INTEGRATION_ID not set, using default payment methods")
+            payment_methods = [5446733]  # Default to user's integration ID
         
         payload = {
             "amount": amount_cents,
-            "currency": "EGP", # Change if needed
-            "payment_methods": [int(os.environ.get('PAYMOB_INTEGRATION_ID'))] if os.environ.get('PAYMOB_INTEGRATION_ID') else ["card", "wallet"], # requesting card and wallet
+            "currency": "EGP",
+            "payment_methods": payment_methods,
             "items": [
                 {
                     "name": package.name,
@@ -61,25 +69,32 @@ class PackageViewSet(viewsets.ModelViewSet):
             "billing_data": {
                 "first_name": user.first_name or "User",
                 "last_name": user.last_name or "Name",
-                "email": user.email,
-                "phone_number": "NA", # Should be collected or user.phone if available
+                "email": user.email or "user@example.com",
+                "phone_number": getattr(user, 'phone', None) or "+201000000000",
                 "apartment": "NA", 
                 "floor": "NA", 
                 "street": "NA", 
                 "building": "NA", 
                 "shipping_method": "NA", 
                 "postal_code": "NA", 
-                "city": "NA", 
-                "country": "EG", 
-                "state": "NA"
+                "city": "Cairo", 
+                "country": "EGY", 
+                "state": "Cairo"
             },
             "special_reference": str(payment.id),
-            "redirection_url": "http://localhost:5173/payment-status" # Adjust for production
+            "redirection_url": "http://localhost:5173/payment-status",
+            "notification_url": "http://localhost:8000/api/payments/callback/"
         }
+
+        print(f"DEBUG: Paymob Request Payload: {payload}")
+        print(f"DEBUG: Using integration ID: {integration_id}")
 
         try:
             response = requests.post(url, json=payload, headers=headers)
             response_data = response.json()
+            
+            print(f"DEBUG: Paymob Response Status: {response.status_code}")
+            print(f"DEBUG: Paymob Response: {response_data}")
             
             if response.status_code in [200, 201]:
                 # Update payment with Paymob ID if available
@@ -91,10 +106,11 @@ class PackageViewSet(viewsets.ModelViewSet):
                     "details": response_data
                 })
             else:
-                print(f"DEBUG: Paymob Error: {response_data}")
+                print(f"ERROR: Paymob Error: {response_data}")
                 return Response({"error": "Paymob Error", "details": response_data}, status=status.HTTP_400_BAD_REQUEST)
         
         except Exception as e:
+            print(f"ERROR: Exception in Paymob API call: {str(e)}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class PaymentViewSet(viewsets.ModelViewSet):
@@ -165,7 +181,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 payment.response_data = json.dumps(data)
                 
                 if is_actually_success:
-                    payment.status = 'COMPLETED'
+                    payment.status = 'completed'  # Use lowercase to match model choices
                     payment.save()
                     
                     # Update User Package
@@ -181,22 +197,25 @@ class PaymentViewSet(viewsets.ModelViewSet):
                     user.free_ads_remaining = package.ad_limit if package.ad_limit < 999 else 9999
                     user.save()
                     
+                    # Create notification for the user
+                    try:
+                        from apps.notifications.models import Notification
+                        Notification.objects.create(
+                            user=user,
+                            notification_type='payment',
+                            title='Payment Successful',
+                            message=f'Your payment for {package.name} package has been confirmed. Enjoy your subscription!',
+                        )
+                    except Exception as notif_error:
+                        print(f"DEBUG: Could not create notification: {notif_error}")
+                    
                     # Log success
                     print(f"DEBUG: Payment {payment.id} verified and user {user.id} upgraded.")
                     
-                    # If this is a redirect from browser, return 302
-                    # But since this is DRF, we can just return success or redirect
-                    # Frontend expects us to redirect?
-                    # views.py provided says redirection_url is localhost:5173/payment/status
-                    # So Paymob redirects THERE, not HERE.
-                    # Wait, if Paymob redirects to Frontend, Frontend executes `useEffect` to verify?
-                    # NO, standard flow is: Paymob -> Frontend -> Backend Verify.
-                    # This view should be called BY FRONTEND or Webhook.
-                    
-                    # Let's assume this is the 'Verify' endpoint called by Frontend
+                    # Return success response for frontend
                     return Response({"status": "success", "package": package.name})
                 else:
-                    payment.status = 'FAILED'
+                    payment.status = 'failed'  # Use lowercase
                     payment.save()
                     return Response({"status": "failed"}, status=status.HTTP_400_BAD_REQUEST)
                     

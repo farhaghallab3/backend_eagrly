@@ -7,7 +7,18 @@ class PackageSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class PaymentSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+    package_name = serializers.CharField(source='package.name', read_only=True)
+    
     class Meta:
         model = Payment
-        fields = '__all__'
+        fields = ['id', 'user', 'user_name', 'package', 'package_name', 
+                  'payment_method', 'amount', 'start_date', 'expiry_date', 
+                  'status', 'transaction_id']
         read_only_fields = ('start_date',)
+    
+    def get_user_name(self, obj):
+        if obj.user.first_name:
+            return f"{obj.user.first_name} {obj.user.last_name}".strip()
+        return obj.user.username
+
