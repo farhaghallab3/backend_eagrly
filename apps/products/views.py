@@ -150,11 +150,9 @@ class ProductViewSet(viewsets.ModelViewSet):
 
         # If the user is the owner
         if instance.seller == user:
-            if requested_status == 'active':
-                serializer.save(status='pending')
-            else:
-                serializer.save()
-                return
+            # Any edit by the user resets the status to pending for admin approval
+            serializer.save(status='pending')
+            return
 
         raise PermissionDenied('You do not have permission to edit this product.')
 
