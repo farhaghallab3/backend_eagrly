@@ -58,9 +58,17 @@ class ProductViewSet(StatisticsMixin, viewsets.ModelViewSet):
         user = self.request.user
 
         if self.action == 'list':
-            # Admin users see all products for admin dashboard, others see active products for browsing
-            if user.is_authenticated and user.role == 'admin':
+            # Admin users see all products for admin dashboard
+            if user.is_authenticated and (user.is_staff or user.is_superuser):
                 return qs
+            
+            # If a status filter is explicitly requested, allow it for any user
+            # This allows the Products Management page to filter by status even without auth
+            status_param = self.request.query_params.get('status')
+            if status_param:
+                return qs  # Allow DjangoFilterBackend to apply the status filter
+            
+            # Otherwise, default to showing only active products for browsing
             return qs.filter(status='active')
 
         if self.action == 'retrieve':
@@ -70,7 +78,7 @@ class ProductViewSet(StatisticsMixin, viewsets.ModelViewSet):
             return qs.filter(status='active')
 
         # For update/delete:
-        if user.is_authenticated and user.role == 'admin':
+        if user.is_authenticated and (user.is_staff or user.is_superuser):
             return qs
 
         # user can only manage their own products
@@ -86,7 +94,7 @@ class ProductViewSet(StatisticsMixin, viewsets.ModelViewSet):
         current_product_count = Product.objects.filter(seller=user).count()
 
         # Admin users have unlimited ads
-        if user.role == 'admin':
+        if user.is_staff or user.is_superuser:
             serializer.save(seller=user, status='active')
             headers = self.get_success_headers(serializer.data)
             return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
@@ -135,7 +143,7 @@ class ProductViewSet(StatisticsMixin, viewsets.ModelViewSet):
         old_status = instance.status
 
         # If the user is admin, they can do anything
-        if user.role == 'admin':
+        if user.is_staff or user.is_superuser:
             serializer.save()
 
             # Create notification if product was approved (status changed from pending to active)

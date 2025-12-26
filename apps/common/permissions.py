@@ -4,13 +4,13 @@ class IsAdminOrReadOnly(permissions.BasePermission):
     def has_permission(self, request, view):
         if request.method in permissions.SAFE_METHODS:
             return True
-        return bool(request.user and request.user.role == 'admin')
+        return bool(request.user and (request.user.is_staff or request.user.is_superuser))
 
 
 class IsOwnerOrAdmin(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         # لو المستخدم أدمن -> مسموح له دائمًا
-        if request.user and request.user.role == 'admin':
+        if request.user and (request.user.is_staff or request.user.is_superuser):
             return True
 
         # لو الـ obj هو المستخدم نفسه
@@ -34,7 +34,7 @@ class IsOwnerOrAdminOrActiveProduct(permissions.BasePermission):
     """
     def has_object_permission(self, request, view, obj):
         # Admin can do anything
-        if request.user and request.user.role == 'admin':
+        if request.user and (request.user.is_staff or request.user.is_superuser):
             return True
 
         # Check if it's a product and it's active - allow anyone to view

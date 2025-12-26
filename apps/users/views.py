@@ -35,7 +35,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'university': self.user.university,
             'faculty': self.user.faculty,
             'phone': self.user.phone,
-            'role': self.user.role,
+            'role': 'admin' if (self.user.is_superuser or self.user.is_staff) else 'user',
             'free_ads_remaining': self.user.free_ads_remaining,
             'active_package': self.user.active_package.id if self.user.active_package else None,
             'package_expiry': self.user.package_expiry.isoformat() if self.user.package_expiry else None,
