@@ -19,6 +19,24 @@ class ChatViewSet(viewsets.ModelViewSet):
         user = self.request.user
         return self.queryset.filter(Q(buyer=user) | Q(seller=user))
 
+    def retrieve(self, request, *args, **kwargs):
+        """When retrieving a chat, mark all messages as read for the current user."""
+        instance = self.get_object()
+        user = request.user
+        # Mark all unread messages NOT sent by current user as read
+        instance.messages.filter(is_read=False).exclude(sender=user).update(is_read=True)
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], url_path='mark-read')
+    def mark_read(self, request, pk=None):
+        """Mark all messages in this chat as read for the current user."""
+        chat = self.get_object()
+        user = request.user
+        # Mark all unread messages NOT sent by current user as read
+        updated = chat.messages.filter(is_read=False).exclude(sender=user).update(is_read=True)
+        return Response({'marked_read': updated})
+
     @action(detail=False, methods=['post'], url_path='find-or-create')
     def find_or_create_chat(self, request):
         print(f"DEBUG: find_or_create_chat data: {request.data}")
@@ -40,13 +58,13 @@ class ChatViewSet(viewsets.ModelViewSet):
         ).first()
 
         if chat:
-            serializer = ChatReadSerializer(chat)
+            serializer = ChatReadSerializer(chat, context={'request': request})
             return Response(serializer.data)
         else:
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             chat = serializer.save()
-            read_serializer = ChatReadSerializer(chat)
+            read_serializer = ChatReadSerializer(chat, context={'request': request})
             headers = self.get_success_headers(read_serializer.data)
             return Response(read_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
@@ -57,3 +75,4 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(sender=self.request.user)
+

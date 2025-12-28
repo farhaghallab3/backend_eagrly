@@ -29,8 +29,19 @@ class ChatReadSerializer(serializers.ModelSerializer):
     buyer = UserSerializer(read_only=True)
     seller = UserSerializer(read_only=True)
     product = ProductSerializer(read_only=True)
+    unread_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Chat
-        fields = ('id', 'product', 'buyer', 'seller', 'messages', 'created_at')
+        fields = ('id', 'product', 'buyer', 'seller', 'messages', 'created_at', 'unread_count')
         read_only_fields = ('created_at',)
+
+    def get_unread_count(self, obj):
+        """Count unread messages for the current user (messages not sent by them and not read)."""
+        request = self.context.get('request')
+        if not request or not request.user:
+            return 0
+        user = request.user
+        # Unread messages are those NOT sent by the current user and NOT read
+        return obj.messages.filter(is_read=False).exclude(sender=user).count()
+

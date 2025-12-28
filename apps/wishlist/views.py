@@ -13,6 +13,20 @@ class WishlistViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return Wishlist.objects.filter(user=self.request.user).select_related('product__category', 'product__seller')
 
+    @action(detail=False, methods=['delete'], url_path='remove/(?P<product_id>[^/.]+)')
+    def remove_by_product(self, request, product_id=None):
+        """Remove product from wishlist by product ID (not wishlist item ID)"""
+        if not product_id:
+            return Response({'error': 'Product ID is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        wishlist_item = Wishlist.objects.filter(user=request.user, product_id=product_id).first()
+        
+        if wishlist_item:
+            wishlist_item.delete()
+            return Response({'status': 'removed', 'product_id': int(product_id)}, status=status.HTTP_200_OK)
+        else:
+            return Response({'error': 'Item not in wishlist'}, status=status.HTTP_404_NOT_FOUND)
+
     @action(detail=False, methods=['post'])
     def toggle(self, request):
         """Toggle product in wishlist"""
@@ -39,3 +53,4 @@ class WishlistViewSet(viewsets.ModelViewSet):
             item = Wishlist.objects.create(user=request.user, product=product)
             serializer = self.get_serializer(item)
             return Response({'status': 'added', 'item': serializer.data}, status=status.HTTP_201_CREATED)
+

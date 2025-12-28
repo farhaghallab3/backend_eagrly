@@ -9,7 +9,7 @@ load_dotenv()
 
 # Basic flags
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'replace-this-secret-key')
-DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'  # Default to False for production safety
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'  # Default to True for local development
 ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', '*').split(',')
 
 # Environment mode (set to 'True' in Cloud Run/production)
@@ -187,8 +187,10 @@ else:
     CORS_ALLOWED_ORIGINS = [
         'http://localhost:5173',
         'http://localhost:5174',
+        'http://localhost:3000',
         'http://127.0.0.1:5173',
         'http://127.0.0.1:5174',
+        'http://127.0.0.1:3000',
     ]
     CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only allow all in debug mode
 
@@ -201,6 +203,9 @@ else:
     CSRF_TRUSTED_ORIGINS = [
         'http://localhost:5173',
         'http://localhost:5174',
+        'http://localhost:3000',
         'http://127.0.0.1:5173',
         'http://127.0.0.1:5174',
+        'http://127.0.0.1:3000',
     ]
+

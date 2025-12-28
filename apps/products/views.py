@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.db.models import Q
 from django.utils import timezone
+from datetime import timedelta
 
 from .models import Category, Product
 from .serializers import CategorySerializer, ProductSerializer
@@ -144,7 +145,13 @@ class ProductViewSet(StatisticsMixin, viewsets.ModelViewSet):
 
         # If the user is admin, they can do anything
         if user.is_staff or user.is_superuser:
-            serializer.save()
+            # Set approved_at and expires_at when approving a product
+            new_status = self.request.data.get('status', instance.status)
+            if old_status in ['pending', 'expired'] and new_status == 'active':
+                now = timezone.now()
+                serializer.save(approved_at=now, expires_at=now + timedelta(days=30))
+            else:
+                serializer.save()
 
             # Create notification if product was approved (status changed from pending to active)
             if old_status == 'pending' and serializer.instance.status == 'active':
@@ -173,6 +180,74 @@ class ProductViewSet(StatisticsMixin, viewsets.ModelViewSet):
             return
 
         raise PermissionDenied('You do not have permission to edit this product.')
+
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+    def check_eligibility(self, request):
+        """Check if user can post a new ad, returns eligibility and days until reset."""
+        user = request.user
+        
+        # Admins can always post
+        if user.is_staff or user.is_superuser:
+            return Response({'can_post': True})
+        
+        current_product_count = Product.objects.filter(seller=user).count()
+        
+        # First 2 ads are free
+        if current_product_count < 2:
+            return Response({'can_post': True, 'free_remaining': 2 - current_product_count})
+        
+        # Check active package
+        has_active_package = (
+            user.active_package and
+            user.package_expiry and
+            user.package_expiry >= timezone.now().date()
+        )
+        if has_active_package:
+            if current_product_count < user.active_package.ad_limit:
+                return Response({'can_post': True})
+        
+        # Check free_ads_remaining credit
+        if user.free_ads_remaining > 0:
+            return Response({'can_post': True})
+        
+        # Calculate days until reset (based on first ad creation date, 30-day cycle)
+        first_product = Product.objects.filter(seller=user).order_by('created_at').first()
+        days_until_reset = 30
+        if first_product:
+            reset_date = first_product.created_at + timedelta(days=30)
+            days_until_reset = max(0, (reset_date - timezone.now()).days)
+        
+        return Response({
+            'can_post': False,
+            'days_until_reset': days_until_reset,
+            'message': f'You need to wait {days_until_reset} days before publishing free ads or subscribe to a plan.'
+        })
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def republish(self, request, pk=None):
+        """Republish an expired ad - resets status to pending for admin approval."""
+        product = self.get_object()
+        user = request.user
+        
+        # Check ownership
+        if product.seller != user and not user.is_staff:
+            raise PermissionDenied('You do not have permission to republish this product.')
+        
+        # Check if the ad is expired
+        if product.status != 'expired' and (not product.expires_at or product.expires_at > timezone.now()):
+            return Response(
+                {'error': 'This ad is not expired and cannot be republished.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Reset status to pending for admin approval
+        product.status = 'pending'
+        product.approved_at = None
+        product.expires_at = None
+        product.save()
+        
+        serializer = self.get_serializer(product)
+        return Response(serializer.data)
 
     @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
     def my_products(self, request):

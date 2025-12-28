@@ -1,4 +1,6 @@
 from rest_framework import serializers
+from django.utils import timezone
+from datetime import timedelta
 from .models import Category, Product
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -20,11 +22,13 @@ class ProductSerializer(serializers.ModelSerializer):
     seller = serializers.SerializerMethodField()
     category_name = serializers.CharField(source='category.name', read_only=True)
     is_active = serializers.SerializerMethodField()
+    days_remaining = serializers.SerializerMethodField()
+    is_expired = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
-        fields = ['id', 'title', 'description', 'price', 'condition', 'image', 'images', 'category', 'seller', 'university', 'faculty', 'governorate', 'is_featured', 'status', 'is_active', 'created_at', 'updated_at', 'category_name']
-        read_only_fields = ('seller','created_at','updated_at')
+        fields = ['id', 'title', 'description', 'price', 'condition', 'image', 'images', 'category', 'seller', 'university', 'faculty', 'governorate', 'is_featured', 'status', 'is_active', 'created_at', 'updated_at', 'category_name', 'approved_at', 'expires_at', 'days_remaining', 'is_expired']
+        read_only_fields = ('seller','created_at','updated_at', 'approved_at', 'expires_at')
 
     def to_internal_value(self, data):
         # Handle category field - allow name or ID
@@ -69,6 +73,19 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def get_is_active(self, obj):
         return obj.status == 'active'
+
+    def get_days_remaining(self, obj):
+        """Calculate days remaining until ad expires."""
+        if obj.expires_at:
+            remaining = obj.expires_at - timezone.now()
+            return max(0, remaining.days)
+        return None
+
+    def get_is_expired(self, obj):
+        """Check if ad has expired."""
+        if obj.expires_at:
+            return timezone.now() > obj.expires_at
+        return False
 
     def validate_status(self, value):
         """Ensure status is one of the allowed STATUS_CHOICES on Product."""

@@ -15,6 +15,7 @@ class Product(models.Model):
         ('active', 'Active'),
         ('inactive', 'Inactive'),
         ('pending', 'Pending'),
+        ('expired', 'Expired'),
     ]
     title = models.CharField(max_length=255)
     description = models.TextField()
@@ -32,6 +33,10 @@ class Product(models.Model):
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Ad expiration tracking
+    approved_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return self.title
+
