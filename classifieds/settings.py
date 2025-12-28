@@ -118,6 +118,9 @@ USE_L10N = True
 USE_TZ = True
 
 STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+# Add STATICFILES_DIRS if you have a general static folder
+# STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 
 # Media configuration: local by default, Google Cloud Storage in production
 if DJANGO_PRODUCTION:

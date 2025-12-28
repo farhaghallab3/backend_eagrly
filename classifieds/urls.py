@@ -76,14 +76,19 @@ def _media_serve_case_insensitive(request, path):
     found_rel = os.path.join(*matched_parts)
     return static_serve(request, found_rel, document_root=settings.MEDIA_ROOT)
 
-    # unreachable
 
-
-# Serve media in development or when explicitly enabled (useful for testing container-built media)
-if settings.DEBUG or os.environ.get('SERVE_MEDIA', 'False') == 'True':
+# Serve static and media files in development (even if DEBUG is False)
+if not getattr(settings, 'DJANGO_PRODUCTION', False):
+    urlpatterns += [
+        re_path(r'^static/(?P<path>.*)$', static_serve, {'document_root': settings.STATIC_ROOT}),
+        re_path(r'^media/(?P<path>.*)$', _media_serve_case_insensitive),
+    ]
+elif settings.DEBUG:
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
     urlpatterns += [
         re_path(r'^media/(?P<path>.*)$', _media_serve_case_insensitive),
     ]
+
 
 # When a file is not present locally but a GS bucket is configured, redirect to the
 # public GCS URL so Cloud Run can serve media stored in Google Cloud Storage.
