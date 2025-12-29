@@ -2,6 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework import permissions
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
@@ -333,13 +334,11 @@ def get_personalized_recommendations(user):
 
 @method_decorator(csrf_exempt, name="dispatch")
 class ChatbotAPIView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
 
     def get_permissions(self):
-        # Allow anonymous access for initial load, require authentication for messages
-        if self.request.data.get("initial", False):
-            return [permissions.AllowAny()]
-        return [permissions.IsAuthenticated()]
+        return [permissions.AllowAny()]
 
     def post(self, request):
         try:
@@ -351,17 +350,62 @@ class ChatbotAPIView(APIView):
                     "products": []
                     }, status=status.HTTP_200_OK)
 
-            serializer = ChatbotSerializer(data=request.data)
-            if not serializer.is_valid():
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            # Handle audio file if present
+            audio_file = request.FILES.get('audio')
+            user_message = ""
+            
+            client = OpenAI(api_key=OPENAI_API_KEY)
 
-            user_message = serializer.validated_data["message"]
+            if audio_file:
+                try:
+                    # Save temporary file for Whisper
+                    import tempfile
+                    from django.core.files.storage import default_storage
+                    from django.core.files.base import ContentFile
+                    
+                    # Create a temp file path
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
+                        for chunk in audio_file.chunks():
+                            temp_audio.write(chunk)
+                        temp_audio_path = temp_audio.name
+
+                    # Transcribe using Whisper
+                    with open(temp_audio_path, "rb") as audio:
+                        transcription = client.audio.transcriptions.create(
+                            model="whisper-1", 
+                            file=audio
+                        )
+                    
+                    user_message = transcription.text
+                    print(f"DEBUG: Transcribed audio to: '{user_message}'")
+                    
+                    # Clean up temp file
+                    os.remove(temp_audio_path)
+                    
+                except Exception as e:
+                    print(f"Error processing audio: {e}")
+                    return Response({"error": "Failed to process audio recording"}, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                # Standard text message
+                serializer = ChatbotSerializer(data=request.data)
+                # If serializer is invalid and we didn't have audio, return error
+                # Note: if audio was sent, we might not have a message body, so we skip serializer validation of 'message'
+                if not serializer.is_valid():
+                    # Check if we got 'message' in data even if serializer complained (e.g. standard form data)
+                    user_message = request.data.get('message', '')
+                    if not user_message:
+                         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    user_message = serializer.validated_data["message"]
+
+            if not user_message:
+                 return Response({"error": "No message provided"}, status=status.HTTP_400_BAD_REQUEST)
 
             if not OPENAI_API_KEY:
                 if settings.DEBUG:
                     print("DEBUG: OpenAI API key missing, returning mock response")
                     # Mock response for testing when API key is missing
-                    mock_products = search_products(user_message, request.user)
+                    mock_products = search_products(user_message, request.user if request.user.is_authenticated else None)
                     return Response({
                         "reply": f"I'm currently in test mode (no API key). I found {len(mock_products)} products matching '{user_message}'.",
                         "products": mock_products
@@ -371,8 +415,6 @@ class ChatbotAPIView(APIView):
                     {"error": "OpenAI API key not configured"},
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
-
-            client = OpenAI(api_key=OPENAI_API_KEY)
 
             # Define functions for product search and personalized recommendations
             tools = [
@@ -458,7 +500,9 @@ class ChatbotAPIView(APIView):
                         print(f"DEBUG: Searching for: {search_query}")
 
                         # Search for products (pass user for hierarchical filtering)
-                        searched_products = search_products(search_query, request.user)
+                        # Handle anonymous user for public access
+                        search_user = request.user if request.user.is_authenticated else None
+                        searched_products = search_products(search_query, search_user)
                         print(f"DEBUG: Found products: {len(searched_products)}")
 
                         # Add the function result to the conversation
@@ -485,7 +529,8 @@ class ChatbotAPIView(APIView):
                         print("DEBUG: Getting personalized recommendations")
                         
                         # Get recommendations
-                        searched_products = get_personalized_recommendations(request.user)
+                        search_user = request.user if request.user.is_authenticated else None
+                        searched_products = get_personalized_recommendations(search_user)
                         print(f"DEBUG: Found recommendations: {len(searched_products)}")
                         
                         # Add the function result to the conversation
@@ -515,6 +560,31 @@ class ChatbotAPIView(APIView):
 
             # Prepare response data
             response_data = {"reply": bot_reply}
+
+            # Generate Audio Response (TTS)
+            try:
+                import base64
+                
+                # Limit text length for TTS to avoid excessive usage/latency
+                tts_text = bot_reply[:1000] 
+                
+                speech_response = client.audio.speech.create(
+                    model="tts-1",
+                    voice="alloy",
+                    input=tts_text
+                )
+                
+                # Get binary data
+                audio_binary = speech_response.content
+                # Encode to base64
+                audio_base64 = base64.b64encode(audio_binary).decode('utf-8')
+                
+                response_data["audio"] = f"data:audio/mp3;base64,{audio_base64}"
+                
+            except Exception as e:
+                print(f"TTS Error: {e}")
+                # Don't fail the whole request if separate TTS fails
+                pass
 
             # Always include product data if we searched (even if AI response is empty)
             if searched_products is not None:
