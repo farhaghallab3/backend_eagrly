@@ -15,7 +15,7 @@ class Package(models.Model):
 
 class Payment(models.Model):
     PAYMENT_METHODS = [('credit','Credit Card'),('paypal','PayPal'),('cash','Cash'),('wallet','Mobile Wallet'),('bank','Bank Transfer')]
-    STATUS_CHOICES = [('pending','Pending'),('completed','Completed'),('failed','Failed'),('cancelled','Cancelled')]
+    STATUS_CHOICES = [('pending','Pending'),('pending_confirmation','Pending Confirmation'),('completed','Completed'),('failed','Failed'),('cancelled','Cancelled')]
     
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     package = models.ForeignKey(Package, on_delete=models.CASCADE)
@@ -28,6 +28,10 @@ class Payment(models.Model):
     response_data = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Manual payment confirmation tracking
+    user_confirmed_at = models.DateTimeField(null=True, blank=True)  # When user clicked "I've Made the Transfer"
+    admin_confirmed_at = models.DateTimeField(null=True, blank=True)  # When admin confirmed receiving payment
+    admin_notes = models.TextField(blank=True, null=True)  # Optional admin notes
 
     def __str__(self):
         return f"Payment {self.id} - {self.user.username} - {self.status}"

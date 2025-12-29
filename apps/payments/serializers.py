@@ -14,8 +14,9 @@ class PaymentSerializer(serializers.ModelSerializer):
         model = Payment
         fields = ['id', 'user', 'user_name', 'package', 'package_name', 
                   'payment_method', 'amount', 'start_date', 'expiry_date', 
-                  'status', 'transaction_id']
-        read_only_fields = ('start_date',)
+                  'status', 'transaction_id', 'created_at', 'updated_at',
+                  'user_confirmed_at', 'admin_confirmed_at', 'admin_notes']
+        read_only_fields = ('start_date', 'created_at', 'updated_at')
     
     def get_user_name(self, obj):
         if obj.user.first_name:

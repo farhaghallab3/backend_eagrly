@@ -224,3 +224,115 @@ class PaymentViewSet(viewsets.ModelViewSet):
         except Exception as e:
             print(f"Error in callback: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def confirm_user_payment(self, request):
+        """
+        User confirms they have made a manual payment (bank transfer or mobile wallet).
+        Creates a payment record with 'pending_confirmation' status and notifies admin.
+        """
+        from django.utils import timezone
+        
+        package_id = request.data.get('package_id')
+        payment_method = request.data.get('payment_method', 'bank')
+        
+        if not package_id:
+            return Response({'error': 'package_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            package = Package.objects.get(id=package_id)
+        except Package.DoesNotExist:
+            return Response({'error': 'Package not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        # Create payment record with pending_confirmation status
+        payment = Payment.objects.create(
+            user=request.user,
+            package=package,
+            amount=package.price,
+            payment_method=payment_method,
+            status='pending_confirmation',
+            user_confirmed_at=timezone.now()
+        )
+        
+        # Create notification for all admin users
+        try:
+            from apps.notifications.models import Notification
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            
+            admin_users = User.objects.filter(is_staff=True) | User.objects.filter(is_superuser=True)
+            user_display_name = request.user.first_name or request.user.username
+            
+            for admin in admin_users:
+                Notification.objects.create(
+                    user=admin,
+                    notification_type='payment',
+                    title='💳 New Payment Pending Confirmation',
+                    message=f'{user_display_name} has confirmed payment for {package.name} package ({package.price} EGP) via {payment.get_payment_method_display()}. Please verify and confirm.'
+                )
+        except Exception as notif_error:
+            print(f"DEBUG: Could not create admin notification: {notif_error}")
+        
+        return Response({
+            'success': True,
+            'message': 'Payment confirmation submitted. Admin will verify and activate your subscription.',
+            'payment_id': payment.id
+        })
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    def admin_confirm(self, request, pk=None):
+        """
+        Admin confirms receiving a manual payment and upgrades the user to the selected package.
+        """
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        payment = self.get_object()
+        package_id = request.data.get('package_id')
+        admin_notes = request.data.get('admin_notes', '')
+        
+        if payment.status == 'completed':
+            return Response({'error': 'Payment already confirmed'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Use the payment's package if no package_id provided
+        if package_id:
+            try:
+                package = Package.objects.get(id=package_id)
+            except Package.DoesNotExist:
+                return Response({'error': 'Package not found'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            package = payment.package
+        
+        # Update payment status
+        payment.status = 'completed'
+        payment.admin_confirmed_at = timezone.now()
+        payment.admin_notes = admin_notes
+        payment.package = package  # In case admin changed the package
+        payment.expiry_date = timezone.now().date() + timedelta(days=package.duration_in_days)
+        payment.save()
+        
+        # Upgrade the user
+        user = payment.user
+        user.active_package = package
+        user.package_expiry = timezone.now().date() + timedelta(days=package.duration_in_days)
+        user.free_ads_remaining = package.ad_limit if package.ad_limit < 999 else 9999
+        user.save()
+        
+        # Create notification for the user
+        try:
+            from apps.notifications.models import Notification
+            Notification.objects.create(
+                user=user,
+                notification_type='payment',
+                title='🎉 Payment Confirmed!',
+                message=f'Your payment has been confirmed! You now have access to the {package.name} plan. Enjoy {package.ad_limit} ads for {package.duration_in_days} days!'
+            )
+        except Exception as notif_error:
+            print(f"DEBUG: Could not create user notification: {notif_error}")
+        
+        return Response({
+            'success': True,
+            'message': f'Payment confirmed. User {user.username} upgraded to {package.name}',
+            'payment': PaymentSerializer(payment).data
+        })
+
