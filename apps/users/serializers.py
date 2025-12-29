@@ -8,15 +8,20 @@ class UserSerializer(serializers.ModelSerializer):
     role = serializers.SerializerMethodField()
     is_staff = serializers.BooleanField(read_only=True)
     is_superuser = serializers.BooleanField(read_only=True)
+    active_package_name = serializers.SerializerMethodField()
     
     class Meta:
         model = User
-        fields = ('id','username','email','password','first_name','last_name','university','faculty','phone','role','is_staff','is_superuser','free_ads_remaining','active_package','package_expiry','created_at','updated_at')
-        read_only_fields = ('id','role','is_staff','is_superuser','free_ads_remaining','created_at','updated_at')
+        fields = ('id','username','email','password','first_name','last_name','university','faculty','phone','role','is_staff','is_superuser','free_ads_remaining','active_package','active_package_name','package_expiry','created_at','updated_at')
+        read_only_fields = ('id','role','is_staff','is_superuser','free_ads_remaining','active_package_name','created_at','updated_at')
     
     def get_role(self, obj):
         """Compute role dynamically based on is_staff or is_superuser, matching CustomTokenObtainPairSerializer logic"""
         return 'admin' if (obj.is_superuser or obj.is_staff) else 'user'
+
+    def get_active_package_name(self, obj):
+        """Return the name of the active package if one exists"""
+        return obj.active_package.name if obj.active_package else None
 
     def create(self, validated_data):
         password = validated_data.pop('password')

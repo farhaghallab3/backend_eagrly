@@ -39,17 +39,15 @@ class ChatViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='find-or-create')
     def find_or_create_chat(self, request):
-        print(f"DEBUG: find_or_create_chat data: {request.data}")
         product_id = request.data.get('product')
         seller_id = request.data.get('seller')
-        buyer_id = request.data.get('buyer')
+        # Always use the authenticated user as the buyer for security
+        buyer_id = request.user.id
 
         if not product_id:
              return Response({"error": "Product ID is missing."}, status=status.HTTP_400_BAD_REQUEST)
         if not seller_id:
              return Response({"error": "Seller ID is missing."}, status=status.HTTP_400_BAD_REQUEST)
-        if not buyer_id:
-             return Response({"error": "Buyer ID is missing. Are you logged in?"}, status=status.HTTP_400_BAD_REQUEST)
 
         chat = Chat.objects.filter(
             product_id=product_id,
@@ -61,7 +59,13 @@ class ChatViewSet(viewsets.ModelViewSet):
             serializer = ChatReadSerializer(chat, context={'request': request})
             return Response(serializer.data)
         else:
-            serializer = self.get_serializer(data=request.data)
+            # Create chat using request data with buyer set to authenticated user
+            data = {
+                'product': product_id,
+                'seller': seller_id,
+                'buyer': buyer_id
+            }
+            serializer = self.get_serializer(data=data)
             serializer.is_valid(raise_exception=True)
             chat = serializer.save()
             read_serializer = ChatReadSerializer(chat, context={'request': request})

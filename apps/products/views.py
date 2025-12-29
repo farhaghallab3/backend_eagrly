@@ -41,6 +41,7 @@ class ProductViewSet(StatisticsMixin, viewsets.ModelViewSet):
         'price': ['exact', 'lt', 'gt'],
         'university': ['exact'],
         'faculty': ['exact'],
+        'governorate': ['exact'],
         'status': ['exact'],
         'seller__id': ['exact'],
     }
@@ -110,7 +111,7 @@ class ProductViewSet(StatisticsMixin, viewsets.ModelViewSet):
         has_active_package = (
             user.active_package and
             user.package_expiry and
-            user.package_expiry >= timezone.now()
+            user.package_expiry >= timezone.now().date()
         )
 
         if has_active_package:

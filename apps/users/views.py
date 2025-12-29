@@ -97,3 +97,41 @@ class UserViewSet(viewsets.ModelViewSet):
             }
         }
         return Response(data)
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    def assign_package(self, request, pk=None):
+        """Admin endpoint to assign a subscription package to a user."""
+        from apps.payments.models import Package
+        from datetime import timedelta
+        from django.utils import timezone
+        
+        user = self.get_object()
+        package_id = request.data.get('package_id')
+        
+        if not package_id:
+            return Response({'error': 'package_id is required'}, status=400)
+        
+        try:
+            package = Package.objects.get(id=package_id)
+        except Package.DoesNotExist:
+            return Response({'error': 'Package not found'}, status=404)
+        
+        # Assign package to user
+        user.active_package = package
+        user.package_expiry = timezone.now().date() + timedelta(days=package.duration_in_days)
+        user.save()
+        
+        # Create notification for the user
+        from apps.notifications.models import Notification
+        Notification.objects.create(
+            user=user,
+            notification_type='package_upgrade',
+            title='🎉 Package Upgrade!',
+            message=f'Congratulations! You have been upgraded to the {package.name} plan. You can now post up to {package.ad_limit} ads and enjoy premium features for {package.duration_in_days} days!'
+        )
+        
+        return Response({
+            'success': True,
+            'message': f'User {user.username} upgraded to {package.name}',
+            'user': UserSerializer(user).data
+        })
