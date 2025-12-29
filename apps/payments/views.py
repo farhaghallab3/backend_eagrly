@@ -114,9 +114,12 @@ class PackageViewSet(viewsets.ModelViewSet):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class PaymentViewSet(viewsets.ModelViewSet):
-    queryset = Payment.objects.all()
+    queryset = Payment.objects.all().order_by('-created_at')
     serializer_class = PaymentSerializer
     permission_classes = [permissions.IsAuthenticated]
+    filterset_fields = ['status', 'payment_method', 'user']
+    search_fields = ['user__username', 'user__first_name', 'user__last_name', 'package__name', 'transaction_id']
+    ordering_fields = ['created_at', 'amount', 'status']
 
     @action(detail=False, methods=['get', 'post'], permission_classes=[permissions.AllowAny])
     def callback(self, request):
