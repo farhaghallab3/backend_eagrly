@@ -342,21 +342,14 @@ class ChatbotAPIView(APIView):
 
     def post(self, request):
         try:
-            is_initial = request.data.get("initial", False)
-            if is_initial:
-                # Return initial welcome message
-                return Response({
-                    "reply": "Looking for something specific? Can I help you?",
-                    "products": []
-                    }, status=status.HTTP_200_OK)
-
-            # Handle audio file if present
+            # FIXED: Check for audio file FIRST before any other logic
             audio_file = request.FILES.get('audio')
             user_message = ""
             
             client = OpenAI(api_key=OPENAI_API_KEY)
 
             if audio_file:
+                print("DEBUG: Processing audio file")
                 try:
                     # Save temporary file for Whisper
                     import tempfile
@@ -386,6 +379,16 @@ class ChatbotAPIView(APIView):
                     print(f"Error processing audio: {e}")
                     return Response({"error": "Failed to process audio recording"}, status=status.HTTP_400_BAD_REQUEST)
             else:
+                # No audio file, check for initial message request
+                is_initial = request.data.get("initial", False)
+                if is_initial:
+                    print("DEBUG: Returning initial welcome message")
+                    # Return initial welcome message
+                    return Response({
+                        "reply": "Looking for something specific? Can I help you?",
+                        "products": []
+                        }, status=status.HTTP_200_OK)
+
                 # Standard text message
                 serializer = ChatbotSerializer(data=request.data)
                 # If serializer is invalid and we didn't have audio, return error
@@ -459,149 +462,4 @@ class ChatbotAPIView(APIView):
             When products are found:
             - Take direct action: Always navigate the user to the product details page automatically
             - The frontend will handle the automatic navigation when it receives products data
-            - Say something brief like "Found it! Taking you to the product details..." followed by navigation
-
-            IMPORTANT: When products are found, the frontend should automatically redirect to show product details. Include navigation message in response.
-
-            LOCATION-BASED SEARCHES: If a user specifies a location (like "from Giza", "in Cairo", "Alexandria ruler"), the search prioritizes products from that location. If no products are found in the specified location, inform the user that the item is not available in that location and suggest checking other locations or browsing categories.
-
-            If no products are found at all, suggest alternatives like browsing categories or asking for recommendations based on their university and faculty.
-
-            Users can ask for recommendations at any time, and you can use get_personalized_recommendations to show products based on their university and faculty.
-            """
-
-            # Always enable tools for this assistant
-            chat_completion = client.chat.completions.create(
-                model="gpt-4o",  # Use a widely available model
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message}
-                ],
-                tools=tools,
-                tool_choice="auto",  # Let AI decide when to use tools
-                temperature=0.7,
-                max_tokens=500
-            )
-
-            response_message = chat_completion.choices[0].message
-
-            # Track if we had a search function call
-            searched_products = None
-            search_query = None
-
-            # Check if the model wants to call a function
-            if response_message.tool_calls:
-                # Call the function
-                for tool_call in response_message.tool_calls:
-                    if tool_call.function.name == "search_products":
-                        # Parse the arguments
-                        args = json.loads(tool_call.function.arguments)
-                        search_query = args.get("query", "")
-                        print(f"DEBUG: Searching for: {search_query}")
-
-                        # Search for products (pass user for hierarchical filtering)
-                        # Handle anonymous user for public access
-                        search_user = request.user if request.user.is_authenticated else None
-                        searched_products = search_products(search_query, search_user)
-                        print(f"DEBUG: Found products: {len(searched_products)}")
-
-                        # Add the function result to the conversation
-                        chat_completion = client.chat.completions.create(
-                            model="gpt-4o",
-                            messages=[
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": user_message},
-                                response_message,
-                                {
-                                    "role": "tool",
-                                    "tool_call_id": tool_call.id,
-                                    "content": json.dumps(searched_products)
-                                }
-                            ],
-                            temperature=0.7,
-                            max_tokens=500
-                        )
-
-                        response_message = chat_completion.choices[0].message
-                        print(f"DEBUG: Final response content: '{response_message.content}'")
-
-                    elif tool_call.function.name == "get_personalized_recommendations":
-                        print("DEBUG: Getting personalized recommendations")
-                        
-                        # Get recommendations
-                        search_user = request.user if request.user.is_authenticated else None
-                        searched_products = get_personalized_recommendations(search_user)
-                        print(f"DEBUG: Found recommendations: {len(searched_products)}")
-                        
-                        # Add the function result to the conversation
-                        chat_completion = client.chat.completions.create(
-                            model="gpt-4o",
-                            messages=[
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": user_message},
-                                response_message,
-                                {
-                                    "role": "tool",
-                                    "tool_call_id": tool_call.id,
-                                    "content": json.dumps(searched_products)
-                                }
-                            ],
-                            temperature=0.7,
-                            max_tokens=500
-                        )
-                        
-                        response_message = chat_completion.choices[0].message
-                        print(f"DEBUG: Final response content: '{response_message.content}'")
-            else:
-                print("DEBUG: No tool calls made by AI")
-
-            # Extract the final response
-            bot_reply = response_message.content or ""
-
-            # Prepare response data
-            response_data = {"reply": bot_reply}
-
-            # Generate Audio Response (TTS)
-            if bot_reply:
-                try:
-                    import base64
-                    
-                    # Limit text length for TTS to avoid excessive usage/latency
-                    tts_text = bot_reply[:1000] 
-                    
-                    speech_response = client.audio.speech.create(
-                        model="tts-1",
-                        voice="alloy",
-                        input=tts_text
-                    )
-                    
-                    # Get binary data
-                    audio_binary = speech_response.content
-                    # Encode to base64
-                    audio_base64 = base64.b64encode(audio_binary).decode('utf-8')
-                    
-                    response_data["audio"] = f"data:audio/mp3;base64,{audio_base64}"
-                    
-                except Exception as e:
-                    print(f"TTS Error: {e}")
-                    # Don't fail the whole request if separate TTS fails
-                    pass
-
-            # Always include product data if we searched (even if AI response is empty)
-            if searched_products is not None:
-                response_data["products"] = searched_products
-                print(f"DEBUG: Including {len(searched_products)} products in response")
-
-            return Response(response_data, status=status.HTTP_200_OK)
-
-        except Exception as exc:
-            print("CRITICAL ERROR IN CHATBOT VIEW:")
-            traceback.print_exc()
-            return Response(
-                {
-                    "error": "internal_server_error",
-                    "detail": str(exc) if settings.DEBUG else "Server error",
-                    "trace": traceback.format_exc() if settings.DEBUG else None,
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+            - Say something brief like "Found it! Taking you to

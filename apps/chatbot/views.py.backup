@@ -472,7 +472,7 @@ class ChatbotAPIView(APIView):
 
             # Always enable tools for this assistant
             chat_completion = client.chat.completions.create(
-                model="gpt-4o",  # Use a widely available model
+                model="gpt-4o-mini-tts",  # Use a cost-effective model
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message}
@@ -507,7 +507,7 @@ class ChatbotAPIView(APIView):
 
                         # Add the function result to the conversation
                         chat_completion = client.chat.completions.create(
-                            model="gpt-4o",
+                            model="gpt-4o-mini-tts",
                             messages=[
                                 {"role": "system", "content": system_prompt},
                                 {"role": "user", "content": user_message},
@@ -535,7 +535,7 @@ class ChatbotAPIView(APIView):
                         
                         # Add the function result to the conversation
                         chat_completion = client.chat.completions.create(
-                            model="gpt-4o",
+                            model="gpt-4o-mini-tts",
                             messages=[
                                 {"role": "system", "content": system_prompt},
                                 {"role": "user", "content": user_message},
@@ -556,36 +556,35 @@ class ChatbotAPIView(APIView):
                 print("DEBUG: No tool calls made by AI")
 
             # Extract the final response
-            bot_reply = response_message.content or ""
+            bot_reply = response_message.content
 
             # Prepare response data
             response_data = {"reply": bot_reply}
 
             # Generate Audio Response (TTS)
-            if bot_reply:
-                try:
-                    import base64
-                    
-                    # Limit text length for TTS to avoid excessive usage/latency
-                    tts_text = bot_reply[:1000] 
-                    
-                    speech_response = client.audio.speech.create(
-                        model="tts-1",
-                        voice="alloy",
-                        input=tts_text
-                    )
-                    
-                    # Get binary data
-                    audio_binary = speech_response.content
-                    # Encode to base64
-                    audio_base64 = base64.b64encode(audio_binary).decode('utf-8')
-                    
-                    response_data["audio"] = f"data:audio/mp3;base64,{audio_base64}"
-                    
-                except Exception as e:
-                    print(f"TTS Error: {e}")
-                    # Don't fail the whole request if separate TTS fails
-                    pass
+            try:
+                import base64
+                
+                # Limit text length for TTS to avoid excessive usage/latency
+                tts_text = bot_reply[:1000] 
+                
+                speech_response = client.audio.speech.create(
+                    model="tts-1",
+                    voice="alloy",
+                    input=tts_text
+                )
+                
+                # Get binary data
+                audio_binary = speech_response.content
+                # Encode to base64
+                audio_base64 = base64.b64encode(audio_binary).decode('utf-8')
+                
+                response_data["audio"] = f"data:audio/mp3;base64,{audio_base64}"
+                
+            except Exception as e:
+                print(f"TTS Error: {e}")
+                # Don't fail the whole request if separate TTS fails
+                pass
 
             # Always include product data if we searched (even if AI response is empty)
             if searched_products is not None:
@@ -595,8 +594,6 @@ class ChatbotAPIView(APIView):
             return Response(response_data, status=status.HTTP_200_OK)
 
         except Exception as exc:
-            print("CRITICAL ERROR IN CHATBOT VIEW:")
-            traceback.print_exc()
             return Response(
                 {
                     "error": "internal_server_error",
