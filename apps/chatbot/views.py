@@ -384,11 +384,7 @@ class ChatbotAPIView(APIView):
                     
                 except Exception as e:
                     print(f"Error processing audio: {e}")
-                    # Change: Fallback for audio error (e.g. quota limit)
-                    user_message = "Scientific Calculator"
-                    print("DEBUG: Using mock transcription due to error.")
-                    # Do NOT return error, proceed to text handling logic
-                    # return Response({"error": "Failed to process audio recording"}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response({"error": "Failed to process audio recording"}, status=status.HTTP_400_BAD_REQUEST)
             else:
                 # Standard text message
                 serializer = ChatbotSerializer(data=request.data)
@@ -453,7 +449,7 @@ class ChatbotAPIView(APIView):
             ]
 
             system_prompt = """
-            You are a helpful AI assistant for a college supplies e-commerce website called "Eagerly".
+            You are a helpful AI assistant for a college supplies e-commerce website called "Classifieds".
             You help students find and purchase tools they need for their studies.
 
             CRITICAL: When a user asks about ANY tools, supplies, or items for sale, ALWAYS use the search_products function first. Do not answer from memory or make up information.
@@ -474,125 +470,99 @@ class ChatbotAPIView(APIView):
             Users can ask for recommendations at any time, and you can use get_personalized_recommendations to show products based on their university and faculty.
             """
 
-            # Try OpenAI Chat Completion with Fallback
-            try:
-                # Always enable tools for this assistant
-                chat_completion = client.chat.completions.create(
-                    model="gpt-4o-mini",  # Use a widely available model
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_message}
-                    ],
-                    tools=tools,
-                    tool_choice="auto",  # Let AI decide when to use tools
-                    temperature=0.7,
-                    max_tokens=500
-                )
+            # Always enable tools for this assistant
+            chat_completion = client.chat.completions.create(
+                model="gpt-4o",  # Use a widely available model
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
+                ],
+                tools=tools,
+                tool_choice="auto",  # Let AI decide when to use tools
+                temperature=0.7,
+                max_tokens=500
+            )
 
-                response_message = chat_completion.choices[0].message
+            response_message = chat_completion.choices[0].message
 
-                # Track if we had a search function call
-                searched_products = None
-                search_query = None
+            # Track if we had a search function call
+            searched_products = None
+            search_query = None
 
-                # Check if the model wants to call a function
-                if response_message.tool_calls:
-                    # Call the function
-                    for tool_call in response_message.tool_calls:
-                        if tool_call.function.name == "search_products":
-                            # Parse the arguments
-                            args = json.loads(tool_call.function.arguments)
-                            search_query = args.get("query", "")
-                            print(f"DEBUG: Searching for: {search_query}")
+            # Check if the model wants to call a function
+            if response_message.tool_calls:
+                # Call the function
+                for tool_call in response_message.tool_calls:
+                    if tool_call.function.name == "search_products":
+                        # Parse the arguments
+                        args = json.loads(tool_call.function.arguments)
+                        search_query = args.get("query", "")
+                        print(f"DEBUG: Searching for: {search_query}")
 
-                            # Search for products (pass user for hierarchical filtering)
-                            # Handle anonymous user for public access
-                            search_user = request.user if request.user.is_authenticated else None
-                            searched_products = search_products(search_query, search_user)
-                            print(f"DEBUG: Found products: {len(searched_products)}")
+                        # Search for products (pass user for hierarchical filtering)
+                        # Handle anonymous user for public access
+                        search_user = request.user if request.user.is_authenticated else None
+                        searched_products = search_products(search_query, search_user)
+                        print(f"DEBUG: Found products: {len(searched_products)}")
 
-                            # Add the function result to the conversation
-                            chat_completion = client.chat.completions.create(
-                                model="gpt-3.5-turbo",
-                                messages=[
-                                    {"role": "system", "content": system_prompt},
-                                    {"role": "user", "content": user_message},
-                                    response_message,
-                                    {
-                                        "role": "tool",
-                                        "tool_call_id": tool_call.id,
-                                        "content": json.dumps(searched_products)
-                                    }
-                                ],
-                                temperature=0.7,
-                                max_tokens=500
-                            )
+                        # Add the function result to the conversation
+                        chat_completion = client.chat.completions.create(
+                            model="gpt-4o",
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_message},
+                                response_message,
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "content": json.dumps(searched_products)
+                                }
+                            ],
+                            temperature=0.7,
+                            max_tokens=500
+                        )
 
-                            response_message = chat_completion.choices[0].message
-                            print(f"DEBUG: Final response content: '{response_message.content}'")
+                        response_message = chat_completion.choices[0].message
+                        print(f"DEBUG: Final response content: '{response_message.content}'")
 
-                        elif tool_call.function.name == "get_personalized_recommendations":
-                            print("DEBUG: Getting personalized recommendations")
-                            
-                            # Get recommendations
-                            search_user = request.user if request.user.is_authenticated else None
-                            searched_products = get_personalized_recommendations(search_user)
-                            print(f"DEBUG: Found recommendations: {len(searched_products)}")
-                            
-                            # Add the function result to the conversation
-                            chat_completion = client.chat.completions.create(
-                                model="gpt-3.5-turbo",
-                                messages=[
-                                    {"role": "system", "content": system_prompt},
-                                    {"role": "user", "content": user_message},
-                                    response_message,
-                                    {
-                                        "role": "tool",
-                                        "tool_call_id": tool_call.id,
-                                        "content": json.dumps(searched_products)
-                                    }
-                                ],
-                                temperature=0.7,
-                                max_tokens=500
-                            )
-                            
-                            response_message = chat_completion.choices[0].message
-                            print(f"DEBUG: Final response content: '{response_message.content}'")
-                else:
-                    print("DEBUG: No tool calls made by AI")
+                    elif tool_call.function.name == "get_personalized_recommendations":
+                        print("DEBUG: Getting personalized recommendations")
+                        
+                        # Get recommendations
+                        search_user = request.user if request.user.is_authenticated else None
+                        searched_products = get_personalized_recommendations(search_user)
+                        print(f"DEBUG: Found recommendations: {len(searched_products)}")
+                        
+                        # Add the function result to the conversation
+                        chat_completion = client.chat.completions.create(
+                            model="gpt-4o",
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_message},
+                                response_message,
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "content": json.dumps(searched_products)
+                                }
+                            ],
+                            temperature=0.7,
+                            max_tokens=500
+                        )
+                        
+                        response_message = chat_completion.choices[0].message
+                        print(f"DEBUG: Final response content: '{response_message.content}'")
+            else:
+                print("DEBUG: No tool calls made by AI")
 
-                # Extract the final response
-                bot_reply = response_message.content or ""
-
-            except Exception as e:
-                print(f"OpenAI API Error (Fallback to Mock): {e}")
-                # Mock a response if API fails (e.g. quota, auth)
-                
-                # Simple keyword extraction for fallback search
-                fallback_query = "calculator" # default
-                keywords = ["calculator", "sketchbook", "mouse", "backpack", "drafting", "ruler", "pen", "notebook"]
-                for k in keywords:
-                    if k in user_message.lower():
-                        fallback_query = k
-                        break
-                
-                mock_products = search_products(fallback_query, request.user if request.user.is_authenticated else None)
-                
-                if mock_products:
-                    bot_reply = f"I found {len(mock_products)} results for '{fallback_query}'! Here's what's available:"
-                else:
-                    bot_reply = f"I couldn't find any '{fallback_query}' products right now. Try browsing our categories or searching for something else!"
-                searched_products = mock_products
+            # Extract the final response
+            bot_reply = response_message.content or ""
 
             # Prepare response data
-            response_data = {
-                "reply": bot_reply,
-                "user_text": user_message
-            }
+            response_data = {"reply": bot_reply}
 
             # Generate Audio Response (TTS)
-            # Skip TTS if main API failed to avoid double error, or wrap in try as before
-            if bot_reply and not "Quota/API Error" in bot_reply: 
+            if bot_reply:
                 try:
                     import base64
                     
@@ -614,6 +584,7 @@ class ChatbotAPIView(APIView):
                     
                 except Exception as e:
                     print(f"TTS Error: {e}")
+                    # Don't fail the whole request if separate TTS fails
                     pass
 
             # Always include product data if we searched (even if AI response is empty)
