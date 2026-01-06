@@ -453,7 +453,7 @@ class ChatbotAPIView(APIView):
             ]
 
             system_prompt = """
-            You are a helpful AI assistant for a college supplies e-commerce website called "Classifieds".
+            You are a helpful AI assistant for a college supplies e-commerce website called "Eagerly".
             You help students find and purchase tools they need for their studies.
 
             CRITICAL: When a user asks about ANY tools, supplies, or items for sale, ALWAYS use the search_products function first. Do not answer from memory or make up information.
@@ -478,7 +478,7 @@ class ChatbotAPIView(APIView):
             try:
                 # Always enable tools for this assistant
                 chat_completion = client.chat.completions.create(
-                    model="gpt-3.5-turbo",  # Use a widely available model
+                    model="gpt-4o-mini",  # Use a widely available model
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_message}

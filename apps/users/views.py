@@ -167,6 +167,8 @@ class UserViewSet(viewsets.ModelViewSet):
             return [permissions.AllowAny()]
         elif self.action in ['register_request', 'verify_otp', 'resend_otp']:
             return [permissions.AllowAny()]
+        elif self.action == 'list':
+            return [permissions.IsAuthenticated()]
         elif self.action in ['retrieve', 'update', 'partial_update', 'destroy']:
             return [permissions.IsAuthenticated(), IsOwnerOrAdmin()]
         elif self.action == 'me':
