@@ -32,83 +32,121 @@ class EmailBackend(ModelBackend):
         return None
 
 
-class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+class UserTokenObtainPairSerializer(TokenObtainPairSerializer):
     username_field = 'email'
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Replace username field with email
+        # Force email field
         self.fields.pop('username', None)
-        # Only add email field if it doesn't already exist
         if 'email' not in self.fields:
             from rest_framework import serializers
             self.fields['email'] = serializers.EmailField()
-    
+
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
-        # Add custom claim for role: normalize to only 'admin' or 'user'
-        role = 'admin' if (user.is_superuser or user.is_staff) else 'user'
-        token['role'] = role
+        token['role'] = 'user'
         return token
 
     def validate(self, attrs):
-        # Get email and password from attrs
         email = attrs.get('email')
         password = attrs.get('password')
         
-        # Authenticate using email
+        if not email or not password:
+            raise serializers.ValidationError('Must include "email" and "password".')
+
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            raise self.fail('no_active_account')
+             raise self.fail('no_active_account')
         
         if not user.check_password(password):
-            raise self.fail('no_active_account')
+             raise self.fail('no_active_account')
         
         if not user.is_active:
-            raise self.fail('no_active_account')
-        
-        # Check if email is verified
+             raise self.fail('no_active_account')
+             
+        # Strict Verification Check for Users
         if not user.is_email_verified:
             from rest_framework import serializers
             raise serializers.ValidationError({
-                'detail': 'Email not verified. Please verify your email before logging in.',
+                'detail': 'Email not verified. Please verify your email via OTP before logging in.',
                 'email_not_verified': True
             })
-        
-        # Generate tokens
+            
         self.user = user
         refresh = self.get_token(self.user)
         
         data = {
             'refresh': str(refresh),
             'access': str(refresh.access_token),
-        }
-        
-        # Include role in the response payload for convenience (admin/user)
-        data['role'] = 'admin' if (self.user.is_superuser or self.user.is_staff) else 'user'
-        # Include user data
-        data['user'] = {
-            'id': self.user.id,
-            'username': self.user.username,
-            'email': self.user.email,
-            'first_name': self.user.first_name,
-            'last_name': self.user.last_name,
-            'university': self.user.university,
-            'faculty': self.user.faculty,
-            'phone': self.user.phone,
-            'role': 'admin' if (self.user.is_superuser or self.user.is_staff) else 'user',
-            'free_ads_remaining': self.user.free_ads_remaining,
-            'active_package': self.user.active_package.id if self.user.active_package else None,
-            'package_expiry': self.user.package_expiry.isoformat() if self.user.package_expiry else None,
-            'is_email_verified': self.user.is_email_verified,
+            'role': 'user',
+            'user': {
+                'id': self.user.id,
+                'email': self.user.email,
+                'first_name': self.user.first_name,
+                'is_email_verified': self.user.is_email_verified,
+            }
         }
         return data
 
 
-class CustomTokenObtainPairView(TokenObtainPairView):
-    serializer_class = CustomTokenObtainPairSerializer
+class AdminTokenObtainPairSerializer(TokenObtainPairSerializer):
+    # Default username_field is 'username'
+    
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        token['role'] = 'admin'
+        return token
+
+    def validate(self, attrs):
+        username = attrs.get('username')
+        password = attrs.get('password')
+        
+        if not username or not password:
+             raise serializers.ValidationError('Must include "username" and "password".')
+
+        try:
+            user = User.objects.get(username=username)
+        except User.DoesNotExist:
+             raise self.fail('no_active_account')
+        
+        if not user.check_password(password):
+             raise self.fail('no_active_account')
+        
+        if not user.is_active:
+             raise self.fail('no_active_account')
+
+        # Admin Access Check
+        if not (user.is_superuser or user.is_staff):
+             raise serializers.ValidationError('Access denied. Admin privileges required.')
+             
+        # NO Email Verification Check for Admins
+        
+        self.user = user
+        refresh = self.get_token(self.user)
+        
+        data = {
+            'refresh': str(refresh),
+            'access': str(refresh.access_token),
+            'role': 'admin',
+            'user': {
+                 'id': self.user.id,
+                 'username': self.user.username,
+                 'email': self.user.email,
+                 'role': 'admin'
+            }
+        }
+        return data
+
+
+class UserLoginView(TokenObtainPairView):
+    serializer_class = UserTokenObtainPairSerializer
+
+class AdminLoginView(TokenObtainPairView):
+    serializer_class = AdminTokenObtainPairSerializer
 
 
 class UserViewSet(viewsets.ModelViewSet):
