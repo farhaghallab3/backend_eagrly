@@ -13,18 +13,18 @@ def send_otp_email(email, otp):
     Send OTP verification email to user.
     Uses Django's send_mail which will output to console when using console backend.
     """
-    subject = 'Eagerly - Verify Your Email'
+    subject = 'Stuplies - Verify Your Email'
     message = f"""
 Hello!
 
-Your verification code for Eagerly is: {otp}
+Your verification code for Stuplies is: {otp}
 
 This code will expire in 10 minutes.
 
 If you didn't request this code, please ignore this email.
 
 Best regards,
-The Eagerly Team
+The Stuplies Team
     """.strip()
     
     html_message = f"""
@@ -32,7 +32,7 @@ The Eagerly Team
     <body style="font-family: Arial, sans-serif; padding: 20px;">
         <h2 style="color: #00b4d8;">Verify Your Email</h2>
         <p>Hello!</p>
-        <p>Your verification code for Eagerly is:</p>
+        <p>Your verification code for Stuplies is:</p>
         <div style="background: linear-gradient(135deg, #00b4d8, #0077b6); 
                     color: white; 
                     font-size: 32px; 
@@ -46,7 +46,7 @@ The Eagerly Team
         <p style="color: #666; margin-top: 20px;">This code will expire in 10 minutes.</p>
         <p style="color: #999; font-size: 12px;">If you didn't request this code, please ignore this email.</p>
         <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-        <p style="color: #00b4d8;">Best regards,<br>The Eagerly Team</p>
+        <p style="color: #00b4d8;">Best regards,<br>The Stuplies Team</p>
     </body>
     </html>
     """
@@ -54,7 +54,7 @@ The Eagerly Team
     send_mail(
         subject=subject,
         message=message,
-        from_email=settings.DEFAULT_FROM_EMAIL if hasattr(settings, 'DEFAULT_FROM_EMAIL') else 'noreply@eagerly.com',
+        from_email=settings.DEFAULT_FROM_EMAIL if hasattr(settings, 'DEFAULT_FROM_EMAIL') else 'noreply@Stuplies.com',
         recipient_list=[email],
         html_message=html_message,
         fail_silently=False,

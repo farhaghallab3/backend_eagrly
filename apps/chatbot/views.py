@@ -453,7 +453,7 @@ class ChatbotAPIView(APIView):
             You help students find and purchase tools they need for their studies.
 
             CRITICAL: When a user asks about ANY tools, supplies, or items for sale, ALWAYS use the search_products function first. Do not answer from memory or make up information.
-
+Stuplies
             Available tools and supplies include: rulers, calculators, thermometers, notebooks, pens, pencils, erasers, geometry sets, laboratory equipment, measuring tools, and many other study supplies.
 
             When products are found:

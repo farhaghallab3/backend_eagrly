@@ -215,4 +215,4 @@ else:
 # Email Configuration
 # Using console backend for development - emails are printed to console
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-DEFAULT_FROM_EMAIL = 'Eagerly <noreply@eagerly.com>'
+DEFAULT_FROM_EMAIL = 'Stuplies <noreply@Stuplies.com>'
