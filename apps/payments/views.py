@@ -7,6 +7,9 @@ from apps.common.permissions import IsAdminOrReadOnly
 import os
 import requests
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 class PackageViewSet(viewsets.ModelViewSet):
     queryset = Package.objects.all()
@@ -51,7 +54,7 @@ class PackageViewSet(viewsets.ModelViewSet):
             payment_methods = [int(integration_id)]
         else:
             # Fallback to generic payment methods if no integration ID
-            print("WARNING: PAYMOB_INTEGRATION_ID not set, using default payment methods")
+            logger.warning("PAYMOB_INTEGRATION_ID not set, using default payment methods")
             payment_methods = [5446733]  # Default to user's integration ID
         
         payload = {
@@ -86,15 +89,16 @@ class PackageViewSet(viewsets.ModelViewSet):
             "notification_url": "http://localhost:8000/api/payments/callback/"
         }
 
-        print(f"DEBUG: Paymob Request Payload: {payload}")
-        print(f"DEBUG: Using integration ID: {integration_id}")
+        # Sent to Paymob
+
 
         try:
             response = requests.post(url, json=payload, headers=headers)
             response_data = response.json()
             
-            print(f"DEBUG: Paymob Response Status: {response.status_code}")
-            print(f"DEBUG: Paymob Response: {response_data}")
+            
+            # Response received
+            
             
             if response.status_code in [200, 201]:
                 # Update payment with Paymob ID if available
@@ -106,11 +110,11 @@ class PackageViewSet(viewsets.ModelViewSet):
                     "details": response_data
                 })
             else:
-                print(f"ERROR: Paymob Error: {response_data}")
+                logger.error(f"Paymob Error: {response_data}")
                 return Response({"error": "Paymob Error", "details": response_data}, status=status.HTTP_400_BAD_REQUEST)
         
         except Exception as e:
-            print(f"ERROR: Exception in Paymob API call: {str(e)}")
+            logger.error(f"Exception in Paymob API call: {str(e)}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class PaymentViewSet(viewsets.ModelViewSet):
@@ -210,10 +214,10 @@ class PaymentViewSet(viewsets.ModelViewSet):
                             message=f'Your payment for {package.name} package has been confirmed. Enjoy your subscription!',
                         )
                     except Exception as notif_error:
-                        print(f"DEBUG: Could not create notification: {notif_error}")
+                        logger.error(f"Could not create notification: {notif_error}")
                     
                     # Log success
-                    print(f"DEBUG: Payment {payment.id} verified and user {user.id} upgraded.")
+                    logger.info(f"Payment {payment.id} verified and user {user.id} upgraded.")
                     
                     # Return success response for frontend
                     return Response({"status": "success", "package": package.name})
@@ -225,7 +229,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
             return Response({"error": "Verification failed"}, status=status.HTTP_400_BAD_REQUEST)
 
         except Exception as e:
-            print(f"Error in callback: {e}")
+            logger.error(f"Error in callback: {e}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
@@ -274,7 +278,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
                     message=f'{user_display_name} has confirmed payment for {package.name} package ({package.price} EGP) via {payment.get_payment_method_display()}. Please verify and confirm.'
                 )
         except Exception as notif_error:
-            print(f"DEBUG: Could not create admin notification: {notif_error}")
+            logger.error(f"Could not create admin notification: {notif_error}")
         
         return Response({
             'success': True,
@@ -331,7 +335,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 message=f'Your payment has been confirmed! You now have access to the {package.name} plan. Enjoy {package.ad_limit} ads for {package.duration_in_days} days!'
             )
         except Exception as notif_error:
-            print(f"DEBUG: Could not create user notification: {notif_error}")
+            logger.error(f"Could not create user notification: {notif_error}")
         
         return Response({
             'success': True,

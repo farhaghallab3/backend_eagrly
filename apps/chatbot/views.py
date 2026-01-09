@@ -11,7 +11,10 @@ from openai import OpenAI
 import os
 import json
 import traceback
+import logging
 from apps.products.models import Product, Category
+
+logger = logging.getLogger(__name__)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or getattr(settings, "OPENAI_API_KEY", None)
 
@@ -92,7 +95,7 @@ def search_products(query, user=None):
 
     # Parse location from query
     specified_location = parse_location_from_query(query)
-    print(f"DEBUG: Parsed location from query: '{specified_location}'")
+    logger.debug(f"Parsed location from query: '{specified_location}'")
 
     # Remove location words from search query for better product matching
     location_words = ['from', 'in', 'at', 'cairo', 'giza', 'alexandria', 'alex']
@@ -115,7 +118,7 @@ def search_products(query, user=None):
     if len(search_query) > 4:
         search_terms.append(search_query[:4])
 
-    print(f"DEBUG: Searching for '{search_query}' with terms: {search_terms}")
+    logger.debug(f"Searching for '{search_query}' with terms: {search_terms}")
 
     # Get user info for filtering
     user_university = ""
@@ -124,7 +127,7 @@ def search_products(query, user=None):
         user_university = (getattr(user, 'university', '') or '').lower().strip()
         user_faculty = (getattr(user, 'faculty', '') or '').lower().strip()
 
-    print(f"DEBUG: User university: '{user_university}', faculty: '{user_faculty}'")
+    logger.debug(f"User university: '{user_university}', faculty: '{user_faculty}'")
 
     # Base queryset
     base_queryset = Product.objects.filter(status='active').select_related('category', 'seller')
@@ -144,7 +147,7 @@ def search_products(query, user=None):
 
     # LEVEL 0: Specified location in query (highest priority if location mentioned)
     if specified_location:
-        print(f"DEBUG: Level 0 - Searching ONLY in specified location: {specified_location}")
+        logger.debug(f"Level 0 - Searching ONLY in specified location: {specified_location}")
         level0_products = []
 
         for field, value in search_strategies:
@@ -162,7 +165,7 @@ def search_products(query, user=None):
                     seen_product_ids.add(product.id)
 
         final_results.extend(level0_products)
-        print(f"DEBUG: Level 0 found {len(level0_products)} products in {specified_location}")
+        logger.debug(f"Level 0 found {len(level0_products)} products in {specified_location}")
 
         # For location-specific searches, if no products found in that location,
         # return empty results (don't fall back to other locations)
@@ -170,7 +173,7 @@ def search_products(query, user=None):
 
     # LEVEL 1: Same university + same faculty (highest priority)
     if user_university and user_faculty:
-        print("DEBUG: Level 1 - Searching same university + same faculty")
+        logger.debug("Level 1 - Searching same university + same faculty")
         level1_products = []
 
         for field, value in search_strategies:
@@ -187,7 +190,7 @@ def search_products(query, user=None):
                     seen_product_ids.add(product.id)
 
         final_results.extend(level1_products)
-        print(f"DEBUG: Level 1 found {len(level1_products)} products")
+        logger.debug(f"Level 1 found {len(level1_products)} products")
 
         # If we have results from level 1, return them
         if final_results:
@@ -195,7 +198,7 @@ def search_products(query, user=None):
 
     # LEVEL 2: Same university + different faculty (medium priority)
     if user_university and len(final_results) < 3:
-        print("DEBUG: Level 2 - Searching same university + different faculty")
+        logger.debug("Level 2 - Searching same university + different faculty")
         level2_products = []
 
         for field, value in search_strategies:
@@ -217,14 +220,14 @@ def search_products(query, user=None):
                     seen_product_ids.add(product.id)
 
         final_results.extend(level2_products)
-        print(f"DEBUG: Level 2 found {len(level2_products)} products")
+        logger.debug(f"Level 2 found {len(level2_products)} products")
 
         # If we have results from level 2, return them
         if final_results:
             return format_products(final_results)
 
     # LEVEL 3: Transfer not available - general search (lowest priority)
-    print("DEBUG: Level 3 - Transfer not available, general search")
+    logger.debug("Level 3 - Transfer not available, general search")
     level3_products = []
 
     for field, value in search_strategies:
@@ -240,7 +243,7 @@ def search_products(query, user=None):
                 seen_product_ids.add(product.id)
 
     final_results.extend(level3_products)
-    print(f"DEBUG: Level 3 found {len(level3_products)} products")
+    logger.debug(f"Level 3 found {len(level3_products)} products")
 
     return format_products(final_results)
 
@@ -276,7 +279,7 @@ def get_personalized_recommendations(user):
     university = (getattr(user, 'university', '') or '').lower().strip()
     faculty = (getattr(user, 'faculty', '') or '').lower().strip()
 
-    print(f"DEBUG: Getting recommendations for university: {university}, faculty: {faculty}")
+    logger.debug(f"Getting recommendations for university: {university}, faculty: {faculty}")
 
     if not university and not faculty:
         # No university/faculty info, return empty recommendations
@@ -302,7 +305,7 @@ def get_personalized_recommendations(user):
         # Include if at least one field matches (university or faculty)
         if matches:
             matching_products.append(product)
-            print(f"DEBUG: Product '{product.title}' matches on: {matches}")
+            logger.debug(f"Product '{product.title}' matches on: {matches}")
             if len(matching_products) >= 10:  # Limit to 10
                 break
 
@@ -352,7 +355,10 @@ class ChatbotAPIView(APIView):
 
             # Handle audio file if present
             audio_file = request.FILES.get('audio')
+            image_file = request.FILES.get('image')
+            transcribe_only = request.data.get('transcribe_only', 'false').lower() == 'true'
             user_message = ""
+            image_analysis = None
             
             client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -369,23 +375,71 @@ class ChatbotAPIView(APIView):
                             temp_audio.write(chunk)
                         temp_audio_path = temp_audio.name
 
-                    # Transcribe using Whisper
+                    # Transcribe using Whisper (auto-detects language - supports Arabic and English)
                     with open(temp_audio_path, "rb") as audio:
                         transcription = client.audio.transcriptions.create(
                             model="whisper-1", 
                             file=audio
+                            # No language parameter = auto-detect (supports Arabic, English, etc.)
                         )
                     
+                    
                     user_message = transcription.text
-                    print(f"DEBUG: Transcribed audio to: '{user_message}'")
+                    logger.debug(f"Transcribed audio to: '{user_message}'")
                     
                     # Clean up temp file
                     os.remove(temp_audio_path)
                     
+                    # If transcribe_only mode, return just the transcription
+                    if transcribe_only:
+                        return Response({"transcription": user_message}, status=status.HTTP_200_OK)
+                    
                 except Exception as e:
-                    print(f"Error processing audio: {e}")
+                    logger.error(f"Error processing audio: {e}")
                     return Response({"error": "Failed to process audio recording"}, status=status.HTTP_400_BAD_REQUEST)
-            else:
+            
+            # Handle image file if present - analyze for product search
+            if image_file:
+                try:
+                    import base64
+                    
+                    # Read image and encode to base64
+                    image_data = image_file.read()
+                    image_base64 = base64.b64encode(image_data).decode('utf-8')
+                    image_mime = image_file.content_type or 'image/jpeg'
+                    
+                    # Ask GPT-4o Vision to analyze the image for product identification
+                    vision_response = client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": "Analyze this image and identify what product or item type it shows. Focus on college/school supplies and tools like calculators, rulers, notebooks, pens, lab equipment, etc. Return ONLY a short search query (1-3 words) that describes the main product or tool type, for example: 'calculator', 'ruler', 'notebook', 'lab coat'. If it's not a product relevant to school/college supplies, return 'general item'."
+                                    },
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:{image_mime};base64,{image_base64}"
+                                        }
+                                    }
+                                ]
+                            }
+                        ],
+                        max_tokens=50
+                    )
+                    
+                    image_analysis = vision_response.choices[0].message.content.strip()
+                    logger.debug(f"Image analysis result: '{image_analysis}'")
+                    
+                except Exception as e:
+                    logger.error(f"Error analyzing image: {e}")
+                    image_analysis = None
+            
+            # Get text message if no audio
+            if not audio_file:
                 # Standard text message
                 serializer = ChatbotSerializer(data=request.data)
                 # If serializer is invalid and we didn't have audio, return error
@@ -393,17 +447,24 @@ class ChatbotAPIView(APIView):
                 if not serializer.is_valid():
                     # Check if we got 'message' in data even if serializer complained (e.g. standard form data)
                     user_message = request.data.get('message', '')
-                    if not user_message:
+                    if not user_message and not image_file:
                          return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
                 else:
-                    user_message = serializer.validated_data["message"]
+                    user_message = serializer.validated_data.get("message", "")
+
+            # If we have image analysis but no/empty user message, use image analysis as the query
+            if image_analysis and not user_message.strip():
+                user_message = f"I'm looking for products similar to this: {image_analysis}"
+            elif image_analysis and user_message.strip():
+                # Combine user message with image analysis context
+                user_message = f"{user_message}. [The user also attached an image that appears to show: {image_analysis}]"
 
             if not user_message:
                  return Response({"error": "No message provided"}, status=status.HTTP_400_BAD_REQUEST)
 
             if not OPENAI_API_KEY:
                 if settings.DEBUG:
-                    print("DEBUG: OpenAI API key missing, returning mock response")
+                    logger.debug("OpenAI API key missing, returning mock response")
                     # Mock response for testing when API key is missing
                     mock_products = search_products(user_message, request.user if request.user.is_authenticated else None)
                     return Response({
@@ -445,29 +506,98 @@ class ChatbotAPIView(APIView):
                             "properties": {}
                         }
                     }
+                },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "escalate_to_supervisor",
+                        "description": "Escalate a user issue to a human supervisor when the AI cannot resolve the problem. Use this when: 1) The user is frustrated after multiple attempts to help, 2) The issue requires human intervention (refunds, account issues, disputes), 3) Technical bugs that need developer attention, 4) The user explicitly requests to speak with a human.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "issue_summary": {
+                                    "type": "string",
+                                    "description": "A brief summary of the user's issue and what has been attempted to resolve it"
+                                },
+                                "issue_type": {
+                                    "type": "string",
+                                    "enum": ["technical_bug", "payment_issue", "account_problem", "product_complaint", "seller_dispute", "feature_request", "other"],
+                                    "description": "Category of the issue"
+                                },
+                                "priority": {
+                                    "type": "string",
+                                    "enum": ["low", "medium", "high"],
+                                    "description": "Priority level based on urgency and user frustration"
+                                }
+                            },
+                            "required": ["issue_summary", "issue_type", "priority"]
+                        }
+                    }
                 }
             ]
 
             system_prompt = """
-            You are a helpful AI assistant for a college supplies e-commerce website called "Classifieds".
-            You help students find and purchase tools they need for their studies.
+            You are a helpful AI assistant for a college supplies e-commerce website called "Eagerly" (also known as "Classifieds").
+            You help students find and purchase tools they need for their studies, AND you provide customer support.
 
+            === PRODUCT SEARCH ===
             CRITICAL: When a user asks about ANY tools, supplies, or items for sale, ALWAYS use the search_products function first. Do not answer from memory or make up information.
-Stuplies
+            
             Available tools and supplies include: rulers, calculators, thermometers, notebooks, pens, pencils, erasers, geometry sets, laboratory equipment, measuring tools, and many other study supplies.
 
             When products are found:
             - Take direct action: Always navigate the user to the product details page automatically
-            - The frontend will handle the automatic navigation when it receives products data
-            - Say something brief like "Found it! Taking you to the product details..." followed by navigation
+            - Say something brief like "Found it! Here are the options..." 
 
-            IMPORTANT: When products are found, the frontend should automatically redirect to show product details. Include navigation message in response.
+            LOCATION-BASED SEARCHES: If a user specifies a location, the search prioritizes products from that location.
 
-            LOCATION-BASED SEARCHES: If a user specifies a location (like "from Giza", "in Cairo", "Alexandria ruler"), the search prioritizes products from that location. If no products are found in the specified location, inform the user that the item is not available in that location and suggest checking other locations or browsing categories.
+            === CUSTOMER SUPPORT ===
+            You also handle customer support, troubleshooting, and complaints. Common issues include:
+            
+            **Technical Issues:**
+            - Login/registration problems → Suggest: clear browser cache, try different browser, check email for verification
+            - Page not loading → Suggest: refresh, check internet connection, try incognito mode
+            - Images not displaying → Suggest: refresh page, check internet speed
+            - Payment failing → Suggest: check card details, try different payment method, ensure sufficient funds
+            - App crashes → Suggest: update browser, clear cache, disable extensions
+            
+            **Account Issues:**
+            - Forgot password → Direct to "Forgot Password" link on login page
+            - Can't verify email → Suggest checking spam folder, request new verification email
+            - Profile not updating → Suggest: log out and back in, clear cache
+            
+            **Product/Order Issues:**
+            - Product not as described → Advise to contact seller first via chat, explain dispute process
+            - Seller not responding → Suggest waiting 24-48 hours, then escalate
+            - Want refund → Explain the platform connects buyers/sellers directly, refunds depend on seller
+            
+            **Platform Navigation:**
+            - How to post ad → Explain: go to "My Ads" → "Add New Product" → fill details → submit
+            - How to contact seller → Explain: click on product → "Chat with Seller" button
+            - How to edit/delete listing → Go to "My Ads" → find listing → edit/delete options
+            
+            **Troubleshooting Approach:**
+            1. Listen carefully and acknowledge the user's frustration
+            2. Ask clarifying questions if needed
+            3. Provide step-by-step solutions
+            4. If first solution doesn't work, try alternatives
+            5. If you cannot resolve after 2-3 attempts OR the user is very frustrated OR it requires human intervention → USE escalate_to_supervisor function
 
-            If no products are found at all, suggest alternatives like browsing categories or asking for recommendations based on their university and faculty.
+            === ESCALATION RULES ===
+            Use escalate_to_supervisor when:
+            - User explicitly asks for a human/manager/supervisor
+            - Issue involves money/payments that need manual review  
+            - Account is locked or banned (needs admin)
+            - Dispute between buyer and seller
+            - Bug that you cannot help troubleshoot
+            - User remains unsatisfied after your troubleshooting attempts
+            - Any issue you genuinely cannot resolve
 
-            Users can ask for recommendations at any time, and you can use get_personalized_recommendations to show products based on their university and faculty.
+            When escalating, be empathetic: "I understand this is frustrating. Let me escalate this to our support team who will personally look into this for you."
+
+            === LANGUAGE ===
+            Respond in the same language the user writes in (Arabic or English).
+            Be friendly, helpful, and professional. Use emojis sparingly for friendliness.
             """
 
             # Always enable tools for this assistant
@@ -503,7 +633,7 @@ Stuplies
                         # Handle anonymous user for public access
                         search_user = request.user if request.user.is_authenticated else None
                         searched_products = search_products(search_query, search_user)
-                        print(f"DEBUG: Found products: {len(searched_products)}")
+                        logger.debug(f"Found products: {len(searched_products)}")
 
                         # Add the function result to the conversation
                         chat_completion = client.chat.completions.create(
@@ -523,7 +653,7 @@ Stuplies
                         )
 
                         response_message = chat_completion.choices[0].message
-                        print(f"DEBUG: Final response content: '{response_message.content}'")
+                        logger.debug(f"Final response content: '{response_message.content}'")
 
                     elif tool_call.function.name == "get_personalized_recommendations":
                         print("DEBUG: Getting personalized recommendations")
@@ -531,7 +661,7 @@ Stuplies
                         # Get recommendations
                         search_user = request.user if request.user.is_authenticated else None
                         searched_products = get_personalized_recommendations(search_user)
-                        print(f"DEBUG: Found recommendations: {len(searched_products)}")
+                        logger.debug(f"Found recommendations: {len(searched_products)}")
                         
                         # Add the function result to the conversation
                         chat_completion = client.chat.completions.create(
@@ -551,9 +681,75 @@ Stuplies
                         )
                         
                         response_message = chat_completion.choices[0].message
-                        print(f"DEBUG: Final response content: '{response_message.content}'")
+                        logger.debug(f"Final response content: '{response_message.content}'")
+
+                    elif tool_call.function.name == "escalate_to_supervisor":
+                        logger.debug("Escalating issue to supervisor")
+                        
+                        # Parse escalation details
+                        args = json.loads(tool_call.function.arguments)
+                        issue_summary = args.get("issue_summary", "No summary provided")
+                        issue_type = args.get("issue_type", "other")
+                        priority = args.get("priority", "medium")
+                        
+                        # Get user info if authenticated
+                        user_info = "Anonymous user"
+                        user_email = None
+                        if request.user.is_authenticated:
+                            user_info = f"User: {request.user.username} (ID: {request.user.id})"
+                            user_email = getattr(request.user, 'email', None)
+                        
+                        # Log the escalation (in production, save to database or send to support system)
+                        escalation_data = {
+                            "timestamp": str(json.dumps({"time": "now"})),  # Will be replaced by actual timestamp
+                            "user": user_info,
+                            "user_email": user_email,
+                            "issue_type": issue_type,
+                            "priority": priority,
+                            "summary": issue_summary,
+                            "original_message": user_message
+                        }
+                        
+                        logger.info(f"=== SUPPORT TICKET ESCALATION ===")
+                        logger.info(f"Priority: {priority.upper()}")
+                        logger.info(f"Type: {issue_type}")
+                        logger.info(f"User: {user_info}")
+                        logger.info(f"Summary: {issue_summary}")
+                        logger.info(f"Original message: {user_message}")
+                        logger.info(f"=================================")
+                        
+                        # TODO: In production, save to SupportTicket model or send to external system
+                        # Example: SupportTicket.objects.create(**escalation_data)
+                        
+                        # Return confirmation to AI
+                        escalation_result = {
+                            "status": "escalated",
+                            "ticket_created": True,
+                            "message": "Issue has been escalated to human support. A supervisor will review and respond within 24-48 hours."
+                        }
+                        
+                        # Add the function result to the conversation
+                        chat_completion = client.chat.completions.create(
+                            model="gpt-4o",
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_message},
+                                response_message,
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "content": json.dumps(escalation_result)
+                                }
+                            ],
+                            temperature=0.7,
+                            max_tokens=500
+                        )
+                        
+                        response_message = chat_completion.choices[0].message
+                        logger.debug(f"Final response content: '{response_message.content}'")
+
             else:
-                print("DEBUG: No tool calls made by AI")
+                logger.debug("No tool calls made by AI")
 
             # Extract the final response
             bot_reply = response_message.content or ""
@@ -583,20 +779,19 @@ Stuplies
                     response_data["audio"] = f"data:audio/mp3;base64,{audio_base64}"
                     
                 except Exception as e:
-                    print(f"TTS Error: {e}")
+                    logger.error(f"TTS Error: {e}")
                     # Don't fail the whole request if separate TTS fails
                     pass
 
             # Always include product data if we searched (even if AI response is empty)
             if searched_products is not None:
                 response_data["products"] = searched_products
-                print(f"DEBUG: Including {len(searched_products)} products in response")
+                logger.debug(f"Including {len(searched_products)} products in response")
 
             return Response(response_data, status=status.HTTP_200_OK)
 
         except Exception as exc:
-            print("CRITICAL ERROR IN CHATBOT VIEW:")
-            traceback.print_exc()
+            logger.error("CRITICAL ERROR IN CHATBOT VIEW:", exc_info=True)
             return Response(
                 {
                     "error": "internal_server_error",
