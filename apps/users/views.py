@@ -144,9 +144,14 @@ class AdminTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 class UserLoginView(TokenObtainPairView):
     serializer_class = UserTokenObtainPairSerializer
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
 
 class AdminLoginView(TokenObtainPairView):
     serializer_class = AdminTokenObtainPairSerializer
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -374,3 +379,80 @@ class UserViewSet(viewsets.ModelViewSet):
             'user': UserSerializer(user).data
         })
 
+from rest_framework.views import APIView
+from google.oauth2 import id_token
+from google.auth.transport import requests
+
+class GoogleLoginView(APIView):
+    """
+    Login with Google ID Token.
+    Verifies the token with Google and returns access/refresh tokens.
+    """
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        token = request.data.get('id_token')
+        if not token:
+            return Response({'error': 'id_token is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Verify the token
+            # Note: In production you should specify the expected audience (client_id)
+            # id_token.verify_oauth2_token(token, requests.Request(), CLIENT_ID)
+            idinfo = id_token.verify_oauth2_token(token, requests.Request())
+
+            if 'email' not in idinfo:
+               return Response({'error': 'Invalid token: Email not found'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            email = idinfo['email']
+            first_name = idinfo.get('given_name', '')
+            last_name = idinfo.get('family_name', '')
+            
+            # Find or Create User
+            try:
+                user = User.objects.get(email=email)
+            except User.DoesNotExist:
+                # Create user
+                username = email.split('@')[0]
+                # Ensure unique username
+                if User.objects.filter(username=username).exists():
+                    import uuid
+                    username = f"{username}_{uuid.uuid4().hex[:4]}"
+                    
+                user = User.objects.create(
+                    email=email,
+                    username=username,
+                    first_name=first_name,
+                    last_name=last_name,
+                    is_email_verified=True # Google users are verified
+                )
+                user.set_unusable_password()
+                user.save()
+            
+            # If user exists but is_email_verified is False (maybe old unverified account), verify it now
+            if not user.is_email_verified:
+                user.is_email_verified = True
+                user.save()
+
+            # Generate tokens
+            refresh = UserTokenObtainPairSerializer.get_token(user)
+            data = {
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+                'role': 'user', # Or determine dynamically
+                'user': {
+                    'id': user.id,
+                    'email': user.email,
+                    'first_name': user.first_name,
+                    'username': user.username,
+                    'is_email_verified': user.is_email_verified,
+                }
+            }
+            return Response(data, status=status.HTTP_200_OK)
+
+        except ValueError as e:
+            return Response({'error': f'Invalid token: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            print(f"Google Login Error: {e}")
+            return Response({'error': 'Google authentication failed'}, status=status.HTTP_400_BAD_REQUEST)

@@ -417,7 +417,7 @@ class ChatbotAPIView(APIView):
                                 "content": [
                                     {
                                         "type": "text",
-                                        "text": "Analyze this image and identify what product or item type it shows. Focus on college/school supplies and tools like calculators, rulers, notebooks, pens, lab equipment, etc. Return ONLY a short search query (1-3 words) that describes the main product or tool type, for example: 'calculator', 'ruler', 'notebook', 'lab coat'. If it's not a product relevant to school/college supplies, return 'general item'."
+                                        "text": "Analyze this image and identify what product or item type it shows. Return ONLY a short search query (1-3 words) that describes the main product. Examples: 'circuit board', 'arduino', 'lab coat', 'calculator', 'ruler'. Be specific but concise."
                                     },
                                     {
                                         "type": "image_url",
