@@ -39,3 +39,4 @@ python-dotenv
 django-storages
 google-cloud-storage
 gunicorn
+Faker
