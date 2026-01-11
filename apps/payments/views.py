@@ -125,6 +125,12 @@ class PaymentViewSet(viewsets.ModelViewSet):
     search_fields = ['user__username', 'user__first_name', 'user__last_name', 'package__name', 'transaction_id']
     ordering_fields = ['created_at', 'amount', 'status']
 
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAdminUser])
+    def pending_count(self, request):
+        """Return the count of payments pending confirmation for admin dashboard."""
+        count = Payment.objects.filter(status='pending_confirmation').count()
+        return Response({'count': count})
+
     @action(detail=False, methods=['get', 'post'], permission_classes=[permissions.AllowAny])
     def callback(self, request):
         """

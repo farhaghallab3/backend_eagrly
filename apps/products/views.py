@@ -138,9 +138,53 @@ class ProductViewSet(StatisticsMixin, viewsets.ModelViewSet):
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    def validate_featured_ad(self, user):
+        """Check if user can feature an ad based on their package limits."""
+        # Admins can always feature ads
+        if user.is_staff or user.is_superuser:
+            return True
+            
+        # Check active package
+        if not (user.active_package and user.package_expiry and user.package_expiry >= timezone.now().date()):
+            return False
+            
+        # Get limit from package
+        limit = user.active_package.featured_ad_limit
+        if limit <= 0:
+            return False
+            
+        # Count currently featured (active) ads by this seller
+        current_featured = Product.objects.filter(seller=user, is_featured=True, status='active').count()
+        
+        return current_featured < limit
+
+    def create(self, request, *args, **kwargs):
+        # Override create to check for featured ad limit if is_featured=True
+        is_featured = request.data.get('is_featured')
+        if is_featured == 'true' or is_featured is True:
+            if not self.validate_featured_ad(request.user):
+                return Response(
+                    {'code': 'featured_limit_exceeded', 'message': 'You have reached your featured ad limit for your current plan.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+        return super().create(request, *args, **kwargs)
+
     def perform_update(self, serializer):
         user = self.request.user
         instance = serializer.instance  # the product being updated
+        
+        # Check featured ad limit if changing to featured
+        new_is_featured = self.request.data.get('is_featured')
+        # Convert string 'true'/'false' to boolean if needed, or handle if it's already boolean
+        if new_is_featured == 'true': new_is_featured = True
+        elif new_is_featured == 'false': new_is_featured = False
+        
+        # Only check if it's being CHANGED to true
+        if new_is_featured is True and not instance.is_featured:
+            if not self.validate_featured_ad(user):
+                raise ValidationError({'is_featured': 'You have reached your featured ad limit for your current plan.'})
+
         requested_status = self.request.data.get('status')
         old_status = instance.status
 
@@ -256,3 +300,127 @@ class ProductViewSet(StatisticsMixin, viewsets.ModelViewSet):
         qs = Product.objects.filter(seller=request.user).select_related('category')
         serializer = self.get_serializer(qs, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAdminUser])
+    def pending_count(self, request):
+        """Return the count of pending products for admin dashboard."""
+        count = Product.objects.filter(status='pending').count()
+        return Response({'count': count})
+
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+    def check_featured_eligibility(self, request):
+        """Check if user can feature an ad based on their package limits."""
+        user = request.user
+        
+        # Admins can always feature ads
+        if user.is_staff or user.is_superuser:
+            return Response({'eligible': True, 'reason': 'admin', 'limit': 999, 'current_count': 0})
+        
+        # Check active package
+        has_active_package = (
+            user.active_package and
+            user.package_expiry and
+            user.package_expiry >= timezone.now().date()
+        )
+        
+        if not has_active_package:
+            return Response({
+                'eligible': False, 
+                'reason': 'no_subscription',
+                'message': 'You need an active subscription (Plus, Premium, or VIP) to feature your ads.'
+            })
+        
+        # Get limit from package
+        limit = user.active_package.featured_ad_limit
+        if limit <= 0:
+            return Response({
+                'eligible': False, 
+                'reason': 'plan_no_featured',
+                'message': 'Your current plan does not include featured ads. Please upgrade your plan.'
+            })
+        
+        # Count currently featured (active) ads by this seller
+        current_featured = Product.objects.filter(seller=user, is_featured=True, status='active').count()
+        
+        if current_featured >= limit:
+            return Response({
+                'eligible': False, 
+                'reason': 'limit_reached',
+                'limit': limit,
+                'current_count': current_featured,
+                'message': f'You have reached your featured ad limit ({limit}) for your {user.active_package.name} plan.'
+            })
+        
+        return Response({
+            'eligible': True, 
+            'reason': 'ok',
+            'limit': limit,
+            'current_count': current_featured,
+            'remaining': limit - current_featured
+        })
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def request_featured(self, request, pk=None):
+        """Request to make an ad featured. Requires active subscription with available slots."""
+        product = self.get_object()
+        user = request.user
+        
+        # Check ownership
+        if product.seller != user and not user.is_staff:
+            raise PermissionDenied('You do not have permission to feature this product.')
+        
+        # Check if already featured
+        if product.is_featured:
+            return Response({'error': 'This ad is already featured.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if product is active (only active ads can be featured)
+        if product.status != 'active':
+            return Response({
+                'error': 'Only active ads can be featured. Please wait for your ad to be approved first.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check eligibility
+        if not self.validate_featured_ad(user):
+            # Determine specific reason
+            has_active_package = (
+                user.active_package and
+                user.package_expiry and
+                user.package_expiry >= timezone.now().date()
+            )
+            if not has_active_package:
+                return Response({
+                    'code': 'no_subscription',
+                    'error': 'You need an active subscription to feature your ads.'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                return Response({
+                    'code': 'limit_reached',
+                    'error': 'You have reached your featured ad limit for your current plan.'
+                }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Mark as featured
+        product.is_featured = True
+        product.save()
+        
+        # Create notification for admin to be aware (optional - informational)
+        try:
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            admin_users = User.objects.filter(is_staff=True) | User.objects.filter(is_superuser=True)
+            for admin in admin_users:
+                Notification.objects.create(
+                    user=admin,
+                    notification_type='product_featured',
+                    title='⭐ Ad Featured',
+                    message=f'{user.first_name or user.username} has featured their ad "{product.title}".',
+                    product=product
+                )
+        except Exception as e:
+            pass  # Notification creation is not critical
+        
+        serializer = self.get_serializer(product)
+        return Response({
+            'success': True,
+            'message': 'Your ad has been marked as featured!',
+            'product': serializer.data
+        })
