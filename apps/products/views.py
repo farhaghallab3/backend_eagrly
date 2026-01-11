@@ -88,9 +88,18 @@ class ProductViewSet(StatisticsMixin, viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)  # This will raise ValidationError for field errors
+        serializer.is_valid(raise_exception=True)
 
         user = request.user
+
+        # Check for featured ad limit if is_featured=True
+        is_featured = request.data.get('is_featured')
+        if is_featured == 'true' or is_featured is True:
+            if not self.validate_featured_ad(user):
+                return Response(
+                    {'code': 'featured_limit_exceeded', 'message': 'You have reached your featured ad limit for your current plan.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
         # Check ad limits before saving
         current_product_count = Product.objects.filter(seller=user).count()
@@ -107,7 +116,7 @@ class ProductViewSet(StatisticsMixin, viewsets.ModelViewSet):
             headers = self.get_success_headers(serializer.data)
             return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
-        # Check active package for additional products (Subscription Model - Concurrent Limit)
+        # Check active package for additional products
         has_active_package = (
             user.active_package and
             user.package_expiry and
@@ -115,16 +124,12 @@ class ProductViewSet(StatisticsMixin, viewsets.ModelViewSet):
         )
 
         if has_active_package:
-            # Calculate remaining ads in package (total limit - current usage)
-            # Note: current_product_count includes ALL products.
-            # If standard is Limit = Total Active Products, use that.
-            # Assuming Package Limit applies to Total products count.
             if current_product_count < user.active_package.ad_limit:
                 serializer.save(seller=user, status='pending')
                 headers = self.get_success_headers(serializer.data)
                 return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
-        # Check free ads remaining (Credit Model - Consumable)
+        # Check free ads remaining
         if user.free_ads_remaining > 0:
             user.free_ads_remaining -= 1
             user.save()
@@ -132,11 +137,12 @@ class ProductViewSet(StatisticsMixin, viewsets.ModelViewSet):
             headers = self.get_success_headers(serializer.data)
             return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
-        # No ads remaining - return custom 400 response
+        # No ads remaining
         return Response(
             {'code': 'ad_limit_exceeded', 'message': 'You have reached your ad limit. Please purchase a package to add more products.'},
             status=status.HTTP_400_BAD_REQUEST
         )
+
 
     def validate_featured_ad(self, user):
         """Check if user can feature an ad based on their package limits."""
@@ -158,17 +164,7 @@ class ProductViewSet(StatisticsMixin, viewsets.ModelViewSet):
         
         return current_featured < limit
 
-    def create(self, request, *args, **kwargs):
-        # Override create to check for featured ad limit if is_featured=True
-        is_featured = request.data.get('is_featured')
-        if is_featured == 'true' or is_featured is True:
-            if not self.validate_featured_ad(request.user):
-                return Response(
-                    {'code': 'featured_limit_exceeded', 'message': 'You have reached your featured ad limit for your current plan.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-                
-        return super().create(request, *args, **kwargs)
+
 
     def perform_update(self, serializer):
         user = self.request.user
