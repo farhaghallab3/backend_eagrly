@@ -33,8 +33,8 @@ class PackageViewSet(viewsets.ModelViewSet):
             user=user,
             package=package,
             amount=package.price,
-            status='PENDING', # Assuming 'PENDING' is a valid status choice
-            payment_method='PAYMOB'
+            status='pending',  # Use lowercase to match model choices
+            payment_method='credit'  # Use valid choice from model
         )
 
         # 2. Call Paymob Intention API

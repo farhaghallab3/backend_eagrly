@@ -379,6 +379,32 @@ class UserViewSet(viewsets.ModelViewSet):
             'user': UserSerializer(user).data
         })
 
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    def remove_package(self, request, pk=None):
+        """Admin endpoint to remove subscription package from a user (downgrade to free)."""
+        user = self.get_object()
+        
+        # Remove package from user and reset to free tier limits
+        user.active_package = None
+        user.package_expiry = None
+        user.free_ads_remaining = 3  # Reset to free tier default
+        user.save()
+        
+        # Create notification for the user
+        from apps.notifications.models import Notification
+        Notification.objects.create(
+            user=user,
+            notification_type='package_downgrade',
+            title='Package Change',
+            message='Your subscription has been changed to the Free tier. You can continue using basic features.'
+        )
+        
+        return Response({
+            'success': True,
+            'message': f'User {user.username} downgraded to Free tier',
+            'user': UserSerializer(user).data
+        })
+
 from rest_framework.views import APIView
 from google.oauth2 import id_token
 from google.auth.transport import requests
