@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'apps.reports',
     'apps.chatbot',
     'apps.wishlist',
+    'apps.support.apps.SupportConfig',
 ]
 
 # Add storages app when using cloud storage
